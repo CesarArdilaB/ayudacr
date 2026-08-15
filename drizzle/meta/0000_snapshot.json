@@ -1,0 +1,282 @@
+{
+    "id": "6743b01d-1dc3-4390-a247-0be1cb7d6209",
+    "prevId": "00000000-0000-0000-0000-000000000000",
+    "version": "7",
+    "dialect": "postgresql",
+    "tables": {
+        "public.assessment_responses": {
+            "name": "assessment_responses",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "assessment_id": {
+                    "name": "assessment_id",
+                    "type": "uuid",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "criterion_key": {
+                    "name": "criterion_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "answer": {
+                    "name": "answer",
+                    "type": "assessment_answer",
+                    "typeSchema": "public",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "comments": {
+                    "name": "comments",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {
+                "assessment_responses_assessment_idx": {
+                    "name": "assessment_responses_assessment_idx",
+                    "columns": [
+                        {
+                            "expression": "assessment_id",
+                            "isExpression": false,
+                            "asc": true,
+                            "nulls": "last"
+                        }
+                    ],
+                    "isUnique": false,
+                    "concurrently": false,
+                    "method": "btree",
+                    "with": {}
+                },
+                "assessment_responses_assessment_criterion_uidx": {
+                    "name": "assessment_responses_assessment_criterion_uidx",
+                    "columns": [
+                        {
+                            "expression": "assessment_id",
+                            "isExpression": false,
+                            "asc": true,
+                            "nulls": "last"
+                        },
+                        {
+                            "expression": "criterion_key",
+                            "isExpression": false,
+                            "asc": true,
+                            "nulls": "last"
+                        }
+                    ],
+                    "isUnique": true,
+                    "concurrently": false,
+                    "method": "btree",
+                    "with": {}
+                }
+            },
+            "foreignKeys": {
+                "assessment_responses_assessment_id_shelter_assessments_id_fk": {
+                    "name": "assessment_responses_assessment_id_shelter_assessments_id_fk",
+                    "tableFrom": "assessment_responses",
+                    "tableTo": "shelter_assessments",
+                    "columnsFrom": ["assessment_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        },
+        "public.shelter_assessments": {
+            "name": "shelter_assessments",
+            "schema": "",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "uuid",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "default": "gen_random_uuid()"
+                },
+                "form_version": {
+                    "name": "form_version",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'2026-08-10'"
+                },
+                "institution": {
+                    "name": "institution",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "visit_date": {
+                    "name": "visit_date",
+                    "type": "date",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "municipality": {
+                    "name": "municipality",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "department": {
+                    "name": "department",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "contact_name": {
+                    "name": "contact_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "contact_role": {
+                    "name": "contact_role",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "phone": {
+                    "name": "phone",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "email": {
+                    "name": "email",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "protection_risk_details": {
+                    "name": "protection_risk_details",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "general_observations": {
+                    "name": "general_observations",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "''"
+                },
+                "visitors": {
+                    "name": "visitors",
+                    "type": "jsonb",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "'[]'::jsonb"
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "timestamp with time zone",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "default": "now()"
+                }
+            },
+            "indexes": {
+                "shelter_assessments_created_by_idx": {
+                    "name": "shelter_assessments_created_by_idx",
+                    "columns": [
+                        {
+                            "expression": "created_by_user_id",
+                            "isExpression": false,
+                            "asc": true,
+                            "nulls": "last"
+                        }
+                    ],
+                    "isUnique": false,
+                    "concurrently": false,
+                    "method": "btree",
+                    "with": {}
+                },
+                "shelter_assessments_visit_date_idx": {
+                    "name": "shelter_assessments_visit_date_idx",
+                    "columns": [
+                        {
+                            "expression": "visit_date",
+                            "isExpression": false,
+                            "asc": true,
+                            "nulls": "last"
+                        }
+                    ],
+                    "isUnique": false,
+                    "concurrently": false,
+                    "method": "btree",
+                    "with": {}
+                }
+            },
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "policies": {},
+            "checkConstraints": {},
+            "isRLSEnabled": false
+        }
+    },
+    "enums": {
+        "public.assessment_answer": {
+            "name": "assessment_answer",
+            "schema": "public",
+            "values": ["yes", "no", "not_observable"]
+        }
+    },
+    "schemas": {},
+    "sequences": {},
+    "roles": {},
+    "policies": {},
+    "views": {},
+    "_meta": {
+        "columns": {},
+        "schemas": {},
+        "tables": {}
+    }
+}
