@@ -1,4 +1,17 @@
 {
+    // Solution-style config: `tsc -b` compiles the referenced projects, never this file. These
+    // options are for tools that resolve the nearest tsconfig.json instead — notably @vercel/node,
+    // which type-checks api/index.ts while deploying and ignores "references". Keep "module" set:
+    // its fixConfig() forces "strict": false whenever module is absent, and the resulting loss of
+    // strictNullChecks makes discriminated unions stop narrowing (parseAssessmentSubmission in
+    // server/assessments.ts reports a phantom TS2339 in the build log).
+    "compilerOptions": {
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "strict": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true
+    },
     "files": [],
     "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
 }

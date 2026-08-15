@@ -1,0 +1,6 @@
+# Biome formats with LF. Without this, a Windows clone with core.autocrlf=true checks every file
+# out with CRLF and `npm run lint` fails on all of them.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary
