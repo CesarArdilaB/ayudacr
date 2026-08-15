@@ -1,8 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComponentType } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { App, type AuthService } from './App'
+import { type AdminService, App, type AuthService } from './App'
 
 function createAuthService(overrides: Partial<AuthService> = {}): AuthService {
     return {
@@ -13,25 +12,16 @@ function createAuthService(overrides: Partial<AuthService> = {}): AuthService {
     }
 }
 
-type TestAdminService = {
-    listAssessments: () => Promise<{
-        records: Array<{
-            id: string
-            institution: string
-            visitDate: string
-            municipality: string
-            department: string
-            createdAt: string
-            createdBy: { name: string; email: string }
-            responseCount: number
-        }>
-    }>
+function createAdminService(overrides: Partial<AdminService> = {}): AdminService {
+    return {
+        listAssessments: vi.fn().mockResolvedValue({ records: [] }),
+        listUsers: vi.fn().mockResolvedValue({ users: [] }),
+        createUser: vi.fn(),
+        updatePassword: vi.fn(),
+        promoteUser: vi.fn(),
+        ...overrides,
+    }
 }
-
-const AdminConfigurableApp = App as unknown as ComponentType<{
-    authService: AuthService
-    adminService: TestAdminService
-}>
 
 describe('App', () => {
     it('shows the sign-in journey to a signed-out visitor', () => {
@@ -143,7 +133,10 @@ describe('App', () => {
         })
 
         render(
-            <AdminConfigurableApp authService={authService} adminService={{ listAssessments }} />,
+            <App
+                authService={authService}
+                adminService={createAdminService({ listAssessments })}
+            />,
         )
         await user.click(screen.getByRole('button', { name: 'Registros' }))
 
@@ -153,7 +146,8 @@ describe('App', () => {
         expect(listAssessments).toHaveBeenCalledOnce()
     })
 
-    it('does not expose user creation controls to a super admin', () => {
+    it('gives a super admin access to user management', async () => {
+        const user = userEvent.setup()
         const authService = createAuthService({
             useSession: () => ({
                 data: {
@@ -167,16 +161,10 @@ describe('App', () => {
             }),
         })
 
-        render(
-            <AdminConfigurableApp
-                authService={authService}
-                adminService={{ listAssessments: vi.fn() }}
-            />,
-        )
+        render(<App authService={authService} adminService={createAdminService()} />)
 
-        expect(screen.queryByRole('button', { name: 'Crear usuarios' })).not.toBeInTheDocument()
-        expect(
-            screen.queryByRole('heading', { name: 'Crear acceso de evaluador' }),
-        ).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Usuarios' }))
+
+        expect(screen.getByRole('heading', { name: 'Gestión de usuarios' })).toBeInTheDocument()
     })
 })

@@ -1,7 +1,16 @@
 import { type FormEvent, useState } from 'react'
 import { AdminRecords } from './components/AdminRecords'
+import { AdminUsers } from './components/AdminUsers'
 import { AssessmentForm } from './components/AssessmentForm'
-import { type AdminAssessment, listAdminAssessments } from './lib/admin-api'
+import {
+    type AdminAssessment,
+    type AdminUser,
+    createEvaluator,
+    listAdminAssessments,
+    listAdminUsers,
+    promoteAdminUser,
+    updateAdminUserPassword,
+} from './lib/admin-api'
 import { postAssessment } from './lib/assessment-api'
 import { authClient } from './lib/auth-client'
 import { prepareAuthForm } from './lib/auth-form'
@@ -28,6 +37,14 @@ export type AuthService = {
 
 export type AdminService = {
     listAssessments: () => Promise<{ records: AdminAssessment[] }>
+    listUsers: () => Promise<{ users: AdminUser[] }>
+    createUser: (input: {
+        name: string
+        email: string
+        password: string
+    }) => Promise<{ user: AdminUser }>
+    updatePassword: (userId: string, password: string) => Promise<{ success: true }>
+    promoteUser: (userId: string) => Promise<{ user: AdminUser }>
 }
 
 const defaultAuthService: AuthService = {
@@ -41,6 +58,10 @@ const defaultAuthService: AuthService = {
 
 const defaultAdminService: AdminService = {
     listAssessments: listAdminAssessments,
+    listUsers: listAdminUsers,
+    createUser: createEvaluator,
+    updatePassword: updateAdminUserPassword,
+    promoteUser: promoteAdminUser,
 }
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -80,7 +101,7 @@ function Dashboard({
     adminService: AdminService
     session: SessionData
 }) {
-    const [view, setView] = useState<'assessment' | 'records'>('assessment')
+    const [view, setView] = useState<'assessment' | 'records' | 'users'>('assessment')
     const isSuperAdmin = session?.user.role === 'super_admin'
 
     return (
@@ -117,11 +138,26 @@ function Dashboard({
                     >
                         Registros
                     </button>
+                    <button
+                        className={view === 'users' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setView('users')}
+                    >
+                        Usuarios
+                    </button>
                 </nav>
             )}
             {view === 'assessment' && <AssessmentForm onSubmit={postAssessment} />}
             {isSuperAdmin && view === 'records' && (
                 <AdminRecords loadRecords={adminService.listAssessments} />
+            )}
+            {isSuperAdmin && view === 'users' && (
+                <AdminUsers
+                    loadUsers={adminService.listUsers}
+                    createUser={adminService.createUser}
+                    updatePassword={adminService.updatePassword}
+                    promoteUser={adminService.promoteUser}
+                />
             )}
         </main>
     )

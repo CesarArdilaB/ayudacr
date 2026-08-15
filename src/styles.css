@@ -1355,6 +1355,156 @@ input[aria-invalid="true"] {
     color: rgba(16, 29, 58, 0.58);
 }
 
+.admin-seal {
+    flex: 0 0 auto;
+    border: 1px solid var(--coral);
+    padding: 0.8rem 1rem;
+    color: var(--coral);
+    background: #fff5f0;
+    font-size: 0.63rem;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.admin-user-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    align-items: end;
+    gap: 1rem;
+    border: 1px solid var(--ink);
+    border-top: 8px solid var(--sun);
+    padding: clamp(1.25rem, 3vw, 2rem);
+    background: white;
+    box-shadow: 12px 12px 0 rgba(0, 56, 147, 0.08);
+}
+
+.admin-user-form label {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.admin-user-form label > span {
+    color: rgba(16, 29, 58, 0.68);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.admin-user-form input,
+.password-update-form input {
+    width: 100%;
+    min-height: 3.1rem;
+    border: 1px solid rgba(0, 56, 147, 0.25);
+    border-radius: 0;
+    padding: 0.75rem 0.85rem;
+    color: var(--ink);
+    background: #fffdf5;
+}
+
+.admin-user-form label small {
+    color: rgba(16, 29, 58, 0.5);
+    font-size: 0.66rem;
+}
+
+.admin-success {
+    margin: 1.5rem 0 0;
+    border: 1px solid rgba(0, 56, 147, 0.28);
+    padding: 1rem;
+    color: var(--forest);
+    background: #eef5ff;
+}
+
+.users-list-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 3.5rem 0 1rem;
+}
+
+.users-list-heading h2 {
+    margin: 0;
+    font-family: "Fraunces Variable", serif;
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 500;
+}
+
+.users-list-heading span {
+    color: rgba(16, 29, 58, 0.58);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.users-table td:first-child strong,
+.users-table td:first-child span {
+    display: block;
+}
+
+.users-table td:first-child span {
+    margin-top: 0.25rem;
+    color: rgba(16, 29, 58, 0.58);
+}
+
+.role-badge {
+    display: inline-block;
+    border-left: 4px solid var(--sun);
+    padding: 0.45rem 0.6rem;
+    color: white;
+    background: var(--forest);
+    font-weight: 800;
+}
+
+.role-badge.super_admin {
+    border-color: var(--coral);
+    background: #800b19;
+}
+
+.user-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.table-action,
+.password-update-form button {
+    min-height: 2.25rem;
+    border: 1px solid var(--forest);
+    padding: 0.4rem 0.65rem;
+    color: var(--forest);
+    background: white;
+    cursor: pointer;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.promote-action {
+    color: #800b19;
+    border-color: #ce1126;
+}
+
+.password-update-form {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) auto;
+    gap: 0.45rem;
+    margin-top: 0.65rem;
+}
+
+.password-update-form input {
+    min-height: 2.5rem;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+}
+
 @keyframes rise-in {
     from {
         opacity: 0;
@@ -1486,6 +1636,44 @@ input[aria-invalid="true"] {
 
     .admin-title-row h1 {
         font-size: 2.8rem;
+    }
+
+    .admin-user-form {
+        grid-template-columns: 1fr;
+        box-shadow: 7px 7px 0 rgba(0, 56, 147, 0.08);
+    }
+
+    .admin-user-form input,
+    .password-update-form input {
+        font-size: 1rem;
+    }
+
+    .admin-user-form .assessment-primary {
+        width: 100%;
+    }
+
+    .users-list-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        margin-top: 3rem;
+    }
+
+    .user-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .table-action {
+        min-height: 2.75rem;
+    }
+
+    .password-update-form {
+        grid-column: 1 / -1;
+        grid-template-columns: 1fr;
+    }
+
+    .password-update-form button {
+        min-height: 2.75rem;
     }
 
     .record-total {
