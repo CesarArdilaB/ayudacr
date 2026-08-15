@@ -17,11 +17,6 @@ type AdminAssessment = {
 type ConfigurableAdminRouter = (options: {
     sessionResolver: AdminSessionResolver
     assessmentRepository: { list: () => Promise<AdminAssessment[]> }
-    userCreator: (input: {
-        name: string
-        email: string
-        password: string
-    }) => Promise<{ id: string; name: string; email: string }>
 }) => ReturnType<typeof createAdminRouter>
 
 const openServers: ReturnType<ReturnType<typeof express>['listen']>[] = []
@@ -58,7 +53,6 @@ describe('super admin API', () => {
         const url = await startAdminApi({
             sessionResolver: evaluatorSession,
             assessmentRepository: { list },
-            userCreator: vi.fn(),
         })
 
         const response = await fetch(`${url}/assessments`)
@@ -84,7 +78,6 @@ describe('super admin API', () => {
         const url = await startAdminApi({
             sessionResolver: adminSession,
             assessmentRepository: { list: vi.fn().mockResolvedValue(records) },
-            userCreator: vi.fn(),
         })
 
         const response = await fetch(`${url}/assessments`)
@@ -93,16 +86,10 @@ describe('super admin API', () => {
         expect(await response.json()).toEqual({ records })
     })
 
-    it('creates an evaluator account for a super admin', async () => {
-        const userCreator = vi.fn().mockResolvedValue({
-            id: 'user-2',
-            name: 'Luis Campo',
-            email: 'luis@example.com',
-        })
+    it('does not expose a user-creation endpoint', async () => {
         const url = await startAdminApi({
             sessionResolver: adminSession,
             assessmentRepository: { list: vi.fn() },
-            userCreator,
         })
 
         const response = await fetch(`${url}/users`, {
@@ -115,40 +102,6 @@ describe('super admin API', () => {
             }),
         })
 
-        expect(response.status).toBe(201)
-        expect(await response.json()).toEqual({
-            user: { id: 'user-2', name: 'Luis Campo', email: 'luis@example.com' },
-        })
-        expect(userCreator).toHaveBeenCalledWith({
-            name: 'Luis Campo',
-            email: 'luis@example.com',
-            password: 'segura-123',
-        })
-    })
-
-    it('rejects invalid account details without creating a user', async () => {
-        const userCreator = vi.fn()
-        const url = await startAdminApi({
-            sessionResolver: adminSession,
-            assessmentRepository: { list: vi.fn() },
-            userCreator,
-        })
-
-        const response = await fetch(`${url}/users`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: '', email: 'invalid', password: 'short' }),
-        })
-
-        expect(response.status).toBe(400)
-        expect(await response.json()).toEqual({
-            error: 'Invalid user details',
-            details: [
-                'name is required',
-                'email is invalid',
-                'password must be at least 8 characters',
-            ],
-        })
-        expect(userCreator).not.toHaveBeenCalled()
+        expect(response.status).toBe(404)
     })
 })

@@ -1241,8 +1241,7 @@ input[aria-invalid="true"] {
     font-weight: 450;
 }
 
-.record-total span,
-.admin-seal {
+.record-total span {
     font-size: 0.63rem;
     font-weight: 850;
     letter-spacing: 0.1em;
@@ -1332,67 +1331,6 @@ input[aria-invalid="true"] {
 .admin-empty p {
     margin: 0;
     color: rgba(16, 29, 58, 0.58);
-}
-
-.admin-seal {
-    flex: 0 0 auto;
-    border: 1px solid var(--coral);
-    padding: 0.8rem 1rem;
-    color: var(--coral);
-    background: #fff5f0;
-}
-
-.admin-user-form {
-    display: grid;
-    max-width: 44rem;
-    gap: 1.4rem;
-    border: 1px solid var(--ink);
-    border-top: 8px solid var(--sun);
-    padding: clamp(1.5rem, 4vw, 3rem);
-    background: white;
-    box-shadow: 18px 18px 0 rgba(0, 56, 147, 0.08);
-}
-
-.admin-user-form label {
-    display: grid;
-    gap: 0.55rem;
-}
-
-.admin-user-form label > span {
-    color: rgba(16, 29, 58, 0.68);
-    font-size: 0.65rem;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.admin-user-form input {
-    width: 100%;
-    min-height: 3.25rem;
-    border: 1px solid rgba(0, 56, 147, 0.25);
-    border-radius: 0;
-    padding: 0.8rem 0.9rem;
-    color: var(--ink);
-    background: #fffdf5;
-}
-
-.admin-user-form label small {
-    color: rgba(16, 29, 58, 0.5);
-    font-size: 0.7rem;
-}
-
-.admin-user-form .assessment-primary {
-    width: fit-content;
-    margin-top: 0.5rem;
-}
-
-.admin-success {
-    margin: 0;
-    border-left: 4px solid var(--forest);
-    padding: 0.9rem 1rem;
-    color: #002b73;
-    background: #eaf0fb;
-    font-size: 0.82rem;
 }
 
 @keyframes rise-in {
@@ -1575,19 +1513,6 @@ input[aria-invalid="true"] {
         font-weight: 850;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-    }
-
-    .admin-user-form {
-        padding: 1.25rem;
-        box-shadow: 8px 8px 0 rgba(0, 56, 147, 0.08);
-    }
-
-    .admin-user-form input {
-        font-size: 1rem;
-    }
-
-    .admin-user-form .assessment-primary {
-        width: 100%;
     }
 
     .step-header {

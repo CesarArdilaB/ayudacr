@@ -1,13 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { AdminRecords } from './components/AdminRecords'
-import { AdminUsers } from './components/AdminUsers'
 import { AssessmentForm } from './components/AssessmentForm'
-import {
-    type AdminAssessment,
-    createEvaluator,
-    listAdminAssessments,
-    type NewEvaluator,
-} from './lib/admin-api'
+import { type AdminAssessment, listAdminAssessments } from './lib/admin-api'
 import { postAssessment } from './lib/assessment-api'
 import { authClient } from './lib/auth-client'
 import { type AuthMode, prepareAuthForm } from './lib/auth-form'
@@ -35,9 +29,6 @@ export type AuthService = {
 
 export type AdminService = {
     listAssessments: () => Promise<{ records: AdminAssessment[] }>
-    createUser: (
-        input: NewEvaluator,
-    ) => Promise<{ user: { id: string; name: string; email: string } }>
 }
 
 const defaultAuthService: AuthService = {
@@ -52,7 +43,6 @@ const defaultAuthService: AuthService = {
 
 const defaultAdminService: AdminService = {
     listAssessments: listAdminAssessments,
-    createUser: createEvaluator,
 }
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -92,7 +82,7 @@ function Dashboard({
     adminService: AdminService
     session: SessionData
 }) {
-    const [view, setView] = useState<'assessment' | 'records' | 'users'>('assessment')
+    const [view, setView] = useState<'assessment' | 'records'>('assessment')
     const isSuperAdmin = session?.user.role === 'super_admin'
 
     return (
@@ -129,21 +119,11 @@ function Dashboard({
                     >
                         Registros
                     </button>
-                    <button
-                        className={view === 'users' ? 'active' : ''}
-                        type="button"
-                        onClick={() => setView('users')}
-                    >
-                        Crear usuarios
-                    </button>
                 </nav>
             )}
             {view === 'assessment' && <AssessmentForm onSubmit={postAssessment} />}
             {isSuperAdmin && view === 'records' && (
                 <AdminRecords loadRecords={adminService.listAssessments} />
-            )}
-            {isSuperAdmin && view === 'users' && (
-                <AdminUsers createUser={adminService.createUser} />
             )}
         </main>
     )

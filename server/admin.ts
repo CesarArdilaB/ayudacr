@@ -27,12 +27,6 @@ export type AdminAssessmentRepository = {
     list(): Promise<AdminAssessment[]>
 }
 
-export type AdminUserCreator = (input: {
-    name: string
-    email: string
-    password: string
-}) => Promise<{ id: string; name: string; email: string }>
-
 const betterAuthAdminSessionResolver: AdminSessionResolver = async (headers) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(headers) })
     if (!session) return null
@@ -81,35 +75,12 @@ export const drizzleAdminAssessmentRepository: AdminAssessmentRepository = {
     },
 }
 
-const betterAuthUserCreator: AdminUserCreator = async (input) => {
-    const result = await auth.api.signUpEmail({ body: input })
-    return { id: result.user.id, name: result.user.name, email: result.user.email }
-}
-
-function parseNewUser(input: unknown) {
-    const value = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
-    const name = typeof value.name === 'string' ? value.name.trim().replace(/\s+/g, ' ') : ''
-    const email = typeof value.email === 'string' ? value.email.trim().toLowerCase() : ''
-    const password = typeof value.password === 'string' ? value.password : ''
-    const errors: string[] = []
-
-    if (!name) errors.push('name is required')
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('email is invalid')
-    if (password.length < 8) errors.push('password must be at least 8 characters')
-
-    return errors.length > 0
-        ? { success: false as const, errors }
-        : { success: true as const, data: { name, email, password } }
-}
-
 export function createAdminRouter({
     sessionResolver = betterAuthAdminSessionResolver,
     assessmentRepository = drizzleAdminAssessmentRepository,
-    userCreator = betterAuthUserCreator,
 }: {
     sessionResolver?: AdminSessionResolver
     assessmentRepository?: AdminAssessmentRepository
-    userCreator?: AdminUserCreator
 } = {}) {
     const router = Router()
 
@@ -132,21 +103,6 @@ export function createAdminRouter({
         } catch (error) {
             console.error('Unable to list shelter assessments', error)
             response.status(500).json({ error: 'Unable to load assessments' })
-        }
-    })
-
-    router.post('/users', async (request, response) => {
-        const parsed = parseNewUser(request.body)
-        if (parsed.success === false) {
-            response.status(400).json({ error: 'Invalid user details', details: parsed.errors })
-            return
-        }
-
-        try {
-            response.status(201).json({ user: await userCreator(parsed.data) })
-        } catch (error) {
-            console.error('Unable to create evaluator account', error)
-            response.status(500).json({ error: 'Unable to create user' })
         }
     })
 

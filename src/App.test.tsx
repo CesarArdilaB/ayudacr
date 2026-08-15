@@ -27,11 +27,6 @@ type TestAdminService = {
             responseCount: number
         }>
     }>
-    createUser: (input: {
-        name: string
-        email: string
-        password: string
-    }) => Promise<{ user: { id: string; name: string; email: string } }>
 }
 
 const AdminConfigurableApp = App as unknown as ComponentType<{
@@ -159,10 +154,7 @@ describe('App', () => {
         })
 
         render(
-            <AdminConfigurableApp
-                authService={authService}
-                adminService={{ listAssessments, createUser: vi.fn() }}
-            />,
+            <AdminConfigurableApp authService={authService} adminService={{ listAssessments }} />,
         )
         await user.click(screen.getByRole('button', { name: 'Registros' }))
 
@@ -172,11 +164,7 @@ describe('App', () => {
         expect(listAssessments).toHaveBeenCalledOnce()
     })
 
-    it('lets a super admin create an evaluator account', async () => {
-        const user = userEvent.setup()
-        const createUser = vi.fn().mockResolvedValue({
-            user: { id: 'user-2', name: 'Luis Campo', email: 'luis@example.com' },
-        })
+    it('does not expose user creation controls to a super admin', () => {
         const authService = createAuthService({
             useSession: () => ({
                 data: {
@@ -193,22 +181,13 @@ describe('App', () => {
         render(
             <AdminConfigurableApp
                 authService={authService}
-                adminService={{ listAssessments: vi.fn(), createUser }}
+                adminService={{ listAssessments: vi.fn() }}
             />,
         )
-        await user.click(screen.getByRole('button', { name: 'Crear usuarios' }))
-        await user.type(screen.getByLabelText('Nombre del evaluador'), 'Luis Campo')
-        await user.type(screen.getByLabelText('Correo del evaluador'), 'LUIS@EXAMPLE.COM')
-        await user.type(screen.getByLabelText(/Contraseña temporal/), 'segura-123')
-        await user.click(screen.getByRole('button', { name: 'Crear acceso' }))
 
-        expect(createUser).toHaveBeenCalledWith({
-            name: 'Luis Campo',
-            email: 'luis@example.com',
-            password: 'segura-123',
-        })
-        expect(await screen.findByRole('status')).toHaveTextContent(
-            'Acceso creado para luis@example.com',
-        )
+        expect(screen.queryByRole('button', { name: 'Crear usuarios' })).not.toBeInTheDocument()
+        expect(
+            screen.queryByRole('heading', { name: 'Crear acceso de evaluador' }),
+        ).not.toBeInTheDocument()
     })
 })
