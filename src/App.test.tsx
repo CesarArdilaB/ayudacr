@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ComponentType } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { App, type AuthService } from './App'
 
@@ -12,6 +13,31 @@ function createAuthService(overrides: Partial<AuthService> = {}): AuthService {
         ...overrides,
     }
 }
+
+type TestAdminService = {
+    listAssessments: () => Promise<{
+        records: Array<{
+            id: string
+            institution: string
+            visitDate: string
+            municipality: string
+            department: string
+            createdAt: string
+            createdBy: { name: string; email: string }
+            responseCount: number
+        }>
+    }>
+    createUser: (input: {
+        name: string
+        email: string
+        password: string
+    }) => Promise<{ user: { id: string; name: string; email: string } }>
+}
+
+const AdminConfigurableApp = App as unknown as ComponentType<{
+    authService: AuthService
+    adminService: TestAdminService
+}>
 
 describe('App', () => {
     it('shows the sign-in journey to a signed-out visitor', () => {
@@ -81,5 +107,108 @@ describe('App', () => {
         await user.click(screen.getByRole('button', { name: 'Ingresar al sistema' }))
 
         expect(screen.getByRole('alert')).toHaveTextContent('Correo o contraseña incorrectos.')
+    })
+
+    it('does not expose administration controls to an evaluator', () => {
+        const authService = createAuthService({
+            useSession: () => ({
+                data: {
+                    user: {
+                        name: 'Ana Solís',
+                        email: 'ana@example.com',
+                        role: 'evaluator',
+                    },
+                } as never,
+                isPending: false,
+            }),
+        })
+
+        render(<App authService={authService} />)
+
+        expect(screen.queryByRole('button', { name: 'Registros' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Crear usuarios' })).not.toBeInTheDocument()
+    })
+
+    it('lets a super admin review captured records', async () => {
+        const user = userEvent.setup()
+        const listAssessments = vi.fn().mockResolvedValue({
+            records: [
+                {
+                    id: 'assessment-1',
+                    institution: 'Coliseo Central',
+                    visitDate: '2026-08-15',
+                    municipality: 'Pereira',
+                    department: 'Risaralda',
+                    createdAt: '2026-08-15T20:00:00.000Z',
+                    createdBy: { name: 'Ana Torres', email: 'ana@example.com' },
+                    responseCount: 44,
+                },
+            ],
+        })
+        const authService = createAuthService({
+            useSession: () => ({
+                data: {
+                    user: {
+                        name: 'Super Admin',
+                        email: 'admin@example.com',
+                        role: 'super_admin',
+                    },
+                } as never,
+                isPending: false,
+            }),
+        })
+
+        render(
+            <AdminConfigurableApp
+                authService={authService}
+                adminService={{ listAssessments, createUser: vi.fn() }}
+            />,
+        )
+        await user.click(screen.getByRole('button', { name: 'Registros' }))
+
+        expect(await screen.findByRole('cell', { name: /Coliseo Central/ })).toBeInTheDocument()
+        expect(screen.getByRole('cell', { name: /Ana Torres/ })).toBeInTheDocument()
+        expect(screen.getByText('44 / 44')).toBeInTheDocument()
+        expect(listAssessments).toHaveBeenCalledOnce()
+    })
+
+    it('lets a super admin create an evaluator account', async () => {
+        const user = userEvent.setup()
+        const createUser = vi.fn().mockResolvedValue({
+            user: { id: 'user-2', name: 'Luis Campo', email: 'luis@example.com' },
+        })
+        const authService = createAuthService({
+            useSession: () => ({
+                data: {
+                    user: {
+                        name: 'Super Admin',
+                        email: 'admin@example.com',
+                        role: 'super_admin',
+                    },
+                } as never,
+                isPending: false,
+            }),
+        })
+
+        render(
+            <AdminConfigurableApp
+                authService={authService}
+                adminService={{ listAssessments: vi.fn(), createUser }}
+            />,
+        )
+        await user.click(screen.getByRole('button', { name: 'Crear usuarios' }))
+        await user.type(screen.getByLabelText('Nombre del evaluador'), 'Luis Campo')
+        await user.type(screen.getByLabelText('Correo del evaluador'), 'LUIS@EXAMPLE.COM')
+        await user.type(screen.getByLabelText(/Contraseña temporal/), 'segura-123')
+        await user.click(screen.getByRole('button', { name: 'Crear acceso' }))
+
+        expect(createUser).toHaveBeenCalledWith({
+            name: 'Luis Campo',
+            email: 'luis@example.com',
+            password: 'segura-123',
+        })
+        expect(await screen.findByRole('status')).toHaveTextContent(
+            'Acceso creado para luis@example.com',
+        )
     })
 })

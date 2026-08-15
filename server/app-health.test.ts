@@ -42,4 +42,23 @@ describe('API readiness', () => {
             checks: { database: 'unavailable' },
         })
     })
+
+    it('protects the admin records endpoint from signed-out requests', async () => {
+        const app = createApp()
+
+        let activeServer!: Server
+        await new Promise<void>((resolve, reject) => {
+            activeServer = app.listen(0, '127.0.0.1', (error) =>
+                error ? reject(error) : resolve(),
+            )
+        })
+        server = activeServer
+        const address = activeServer.address()
+        if (!address || typeof address === 'string') throw new Error('Expected a TCP address')
+
+        const response = await fetch(`http://127.0.0.1:${address.port}/api/admin/assessments`)
+
+        expect(response.status).toBe(401)
+        expect(await response.json()).toEqual({ error: 'Authentication required' })
+    })
 })

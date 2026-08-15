@@ -1,4 +1,4 @@
-import { getTableName } from 'drizzle-orm'
+import { getTableColumns, getTableName } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import * as schema from './schema.js'
 
@@ -18,5 +18,13 @@ describe('production database schema', () => {
                 getTableName(table as Parameters<typeof getTableName>[0]),
             ),
         ).toEqual(authTables)
+    })
+
+    it('stores a least-privilege role for every user', () => {
+        const columns = getTableColumns(schema.user)
+
+        expect(columns).toHaveProperty('role')
+        expect(columns.role.notNull).toBe(true)
+        expect(columns.role.default).toBe('evaluator')
     })
 })

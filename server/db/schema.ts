@@ -12,6 +12,8 @@ import {
     uuid,
 } from 'drizzle-orm/pg-core'
 
+export const userRole = pgEnum('user_role', ['evaluator', 'super_admin'])
+
 export const user = pgTable(
     'user',
     {
@@ -20,6 +22,7 @@ export const user = pgTable(
         email: text('email').notNull(),
         emailVerified: boolean('emailVerified').default(false).notNull(),
         image: text('image'),
+        role: userRole('role').default('evaluator').notNull(),
         createdAt: timestamp('createdAt').defaultNow().notNull(),
         updatedAt: timestamp('updatedAt').defaultNow().notNull(),
     },

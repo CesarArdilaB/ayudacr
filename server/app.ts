@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { toNodeHandler } from 'better-auth/node'
 import cors from 'cors'
 import express from 'express'
+import { createAdminRouter } from './admin.js'
 import {
     type AssessmentRepository,
     createAssessmentsRouter,
@@ -37,6 +38,7 @@ export function createApp({
     app.all('/api/auth/*splat', toNodeHandler(authInstance))
 
     app.use(express.json())
+    app.use('/api/admin', createAdminRouter())
     app.use(
         '/api/assessments',
         createAssessmentsRouter({ repository: assessmentRepository, sessionResolver }),

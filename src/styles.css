@@ -1147,6 +1147,254 @@ input[aria-invalid="true"] {
     line-height: 1.55;
 }
 
+/* Super-admin command center */
+.admin-navigation {
+    display: flex;
+    max-width: 1480px;
+    gap: 0.35rem;
+    margin: 0 auto;
+    border-bottom: 1px solid rgba(0, 56, 147, 0.18);
+    padding: 0.8rem 2rem;
+    background: #fffdf5;
+}
+
+.admin-navigation button {
+    min-height: 2.7rem;
+    border: 1px solid transparent;
+    padding: 0 1rem;
+    color: rgba(16, 29, 58, 0.62);
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.admin-navigation button:hover {
+    color: var(--forest);
+    border-color: rgba(0, 56, 147, 0.18);
+}
+
+.admin-navigation button.active {
+    color: white;
+    background: var(--forest);
+}
+
+.admin-surface {
+    max-width: 1480px;
+    min-height: calc(100vh - 9rem);
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem);
+    background:
+        linear-gradient(rgba(0, 56, 147, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 56, 147, 0.035) 1px, transparent 1px), #fffdf5;
+    background-size: 42px 42px;
+    animation: rise-in 300ms ease-out both;
+}
+
+.admin-title-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2rem;
+    margin-bottom: clamp(2rem, 5vw, 4rem);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 2rem;
+}
+
+.admin-title-row .eyebrow {
+    margin-bottom: 1rem;
+}
+
+.admin-title-row h1 {
+    max-width: 52rem;
+    margin: 0;
+    font-family: "Fraunces Variable", serif;
+    font-size: clamp(2.7rem, 6vw, 5.4rem);
+    font-weight: 480;
+    letter-spacing: -0.06em;
+    line-height: 0.95;
+}
+
+.admin-title-row > div > p:last-child {
+    max-width: 42rem;
+    margin: 1rem 0 0;
+    color: rgba(16, 29, 58, 0.62);
+    line-height: 1.6;
+}
+
+.record-total {
+    display: grid;
+    min-width: 8rem;
+    place-items: center;
+    border: 1px solid var(--ink);
+    padding: 1rem;
+    color: var(--ink);
+    background: var(--sun);
+}
+
+.record-total strong {
+    font-family: "Fraunces Variable", serif;
+    font-size: 2.4rem;
+    font-style: italic;
+    font-weight: 450;
+}
+
+.record-total span,
+.admin-seal {
+    font-size: 0.63rem;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.records-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+    background: white;
+}
+
+.records-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.records-table th {
+    padding: 0.9rem 1rem;
+    color: white;
+    background: #002b73;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.records-table td {
+    border-bottom: 1px solid rgba(0, 56, 147, 0.14);
+    padding: 1.2rem 1rem;
+    color: rgba(16, 29, 58, 0.82);
+    font-size: 0.82rem;
+    vertical-align: top;
+}
+
+.records-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.records-table td strong,
+.records-table td small {
+    display: block;
+}
+
+.records-table td strong {
+    color: var(--ink);
+    font-family: "Fraunces Variable", serif;
+    font-size: 1rem;
+}
+
+.records-table td small {
+    margin-top: 0.3rem;
+    color: rgba(16, 29, 58, 0.48);
+}
+
+.completion-pill {
+    display: inline-block;
+    min-width: 4.7rem;
+    border-left: 4px solid var(--sun);
+    padding: 0.45rem 0.6rem;
+    color: white;
+    background: var(--forest);
+    font-weight: 800;
+}
+
+.admin-empty {
+    max-width: 36rem;
+    border: 1px solid var(--ink);
+    padding: 3rem;
+    background: white;
+}
+
+.admin-empty > span {
+    color: var(--coral);
+    font-family: "Fraunces Variable", serif;
+    font-size: 1.2rem;
+    font-style: italic;
+}
+
+.admin-empty h2 {
+    margin: 1rem 0 0.5rem;
+    font-family: "Fraunces Variable", serif;
+    font-size: 2rem;
+    font-weight: 500;
+}
+
+.admin-empty p {
+    margin: 0;
+    color: rgba(16, 29, 58, 0.58);
+}
+
+.admin-seal {
+    flex: 0 0 auto;
+    border: 1px solid var(--coral);
+    padding: 0.8rem 1rem;
+    color: var(--coral);
+    background: #fff5f0;
+}
+
+.admin-user-form {
+    display: grid;
+    max-width: 44rem;
+    gap: 1.4rem;
+    border: 1px solid var(--ink);
+    border-top: 8px solid var(--sun);
+    padding: clamp(1.5rem, 4vw, 3rem);
+    background: white;
+    box-shadow: 18px 18px 0 rgba(0, 56, 147, 0.08);
+}
+
+.admin-user-form label {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.admin-user-form label > span {
+    color: rgba(16, 29, 58, 0.68);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.admin-user-form input {
+    width: 100%;
+    min-height: 3.25rem;
+    border: 1px solid rgba(0, 56, 147, 0.25);
+    border-radius: 0;
+    padding: 0.8rem 0.9rem;
+    color: var(--ink);
+    background: #fffdf5;
+}
+
+.admin-user-form label small {
+    color: rgba(16, 29, 58, 0.5);
+    font-size: 0.7rem;
+}
+
+.admin-user-form .assessment-primary {
+    width: fit-content;
+    margin-top: 0.5rem;
+}
+
+.admin-success {
+    margin: 0;
+    border-left: 4px solid var(--forest);
+    padding: 0.9rem 1rem;
+    color: #002b73;
+    background: #eaf0fb;
+    font-size: 0.82rem;
+}
+
 @keyframes rise-in {
     from {
         opacity: 0;
@@ -1251,6 +1499,95 @@ input[aria-invalid="true"] {
 
     .assessment-content {
         padding: 2rem 1rem 3rem;
+    }
+
+    .admin-navigation {
+        overflow-x: auto;
+        padding: 0.65rem 0.75rem;
+        scrollbar-width: none;
+    }
+
+    .admin-navigation button {
+        flex: 0 0 auto;
+        min-height: 2.9rem;
+    }
+
+    .admin-surface {
+        min-height: calc(100vh - 11rem);
+        padding: 2rem 1rem 3rem;
+        background-size: 30px 30px;
+    }
+
+    .admin-title-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 1.3rem;
+    }
+
+    .admin-title-row h1 {
+        font-size: 2.8rem;
+    }
+
+    .record-total {
+        min-width: 0;
+        width: 100%;
+        grid-template-columns: auto auto;
+        justify-content: space-between;
+    }
+
+    .records-table-wrap {
+        overflow: visible;
+        border: 0;
+        background: transparent;
+    }
+
+    .records-table,
+    .records-table tbody,
+    .records-table tr,
+    .records-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .records-table thead {
+        display: none;
+    }
+
+    .records-table tr {
+        margin-bottom: 1rem;
+        border: 1px solid var(--ink);
+        border-top: 6px solid var(--sun);
+        background: white;
+    }
+
+    .records-table td {
+        display: grid;
+        grid-template-columns: 6.2rem 1fr;
+        gap: 0.8rem;
+        border-bottom: 1px solid rgba(0, 56, 147, 0.12);
+        padding: 0.85rem 1rem;
+    }
+
+    .records-table td::before {
+        color: rgba(16, 29, 58, 0.52);
+        content: attr(data-label);
+        font-size: 0.6rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .admin-user-form {
+        padding: 1.25rem;
+        box-shadow: 8px 8px 0 rgba(0, 56, 147, 0.08);
+    }
+
+    .admin-user-form input {
+        font-size: 1rem;
+    }
+
+    .admin-user-form .assessment-primary {
+        width: 100%;
     }
 
     .step-header {

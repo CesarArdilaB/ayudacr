@@ -1,5 +1,13 @@
 import { type FormEvent, useState } from 'react'
+import { AdminRecords } from './components/AdminRecords'
+import { AdminUsers } from './components/AdminUsers'
 import { AssessmentForm } from './components/AssessmentForm'
+import {
+    type AdminAssessment,
+    createEvaluator,
+    listAdminAssessments,
+    type NewEvaluator,
+} from './lib/admin-api'
 import { postAssessment } from './lib/assessment-api'
 import { authClient } from './lib/auth-client'
 import { type AuthMode, prepareAuthForm } from './lib/auth-form'
@@ -8,6 +16,7 @@ type SessionData = {
     user: {
         name: string
         email: string
+        role?: 'evaluator' | 'super_admin'
     }
 } | null
 
@@ -24,6 +33,13 @@ export type AuthService = {
     signOut: () => Promise<unknown>
 }
 
+export type AdminService = {
+    listAssessments: () => Promise<{ records: AdminAssessment[] }>
+    createUser: (
+        input: NewEvaluator,
+    ) => Promise<{ user: { id: string; name: string; email: string } }>
+}
+
 const defaultAuthService: AuthService = {
     useSession: () => {
         const session = authClient.useSession()
@@ -32,6 +48,11 @@ const defaultAuthService: AuthService = {
     signIn: (values) => authClient.signIn.email(values),
     signUp: (values) => authClient.signUp.email(values),
     signOut: () => authClient.signOut(),
+}
+
+const defaultAdminService: AdminService = {
+    listAssessments: listAdminAssessments,
+    createUser: createEvaluator,
 }
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -62,7 +83,18 @@ function LoadingScreen() {
     )
 }
 
-function Dashboard({ authService, session }: { authService: AuthService; session: SessionData }) {
+function Dashboard({
+    authService,
+    adminService,
+    session,
+}: {
+    authService: AuthService
+    adminService: AdminService
+    session: SessionData
+}) {
+    const [view, setView] = useState<'assessment' | 'records' | 'users'>('assessment')
+    const isSuperAdmin = session?.user.role === 'super_admin'
+
     return (
         <main className="response-dashboard">
             <header className="response-header">
@@ -81,7 +113,38 @@ function Dashboard({ authService, session }: { authService: AuthService; session
                     </button>
                 </div>
             </header>
-            <AssessmentForm onSubmit={postAssessment} />
+            {isSuperAdmin && (
+                <nav className="admin-navigation" aria-label="Administración">
+                    <button
+                        className={view === 'assessment' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setView('assessment')}
+                    >
+                        Nueva evaluación
+                    </button>
+                    <button
+                        className={view === 'records' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setView('records')}
+                    >
+                        Registros
+                    </button>
+                    <button
+                        className={view === 'users' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setView('users')}
+                    >
+                        Crear usuarios
+                    </button>
+                </nav>
+            )}
+            {view === 'assessment' && <AssessmentForm onSubmit={postAssessment} />}
+            {isSuperAdmin && view === 'records' && (
+                <AdminRecords loadRecords={adminService.listAssessments} />
+            )}
+            {isSuperAdmin && view === 'users' && (
+                <AdminUsers createUser={adminService.createUser} />
+            )}
         </main>
     )
 }
@@ -299,11 +362,25 @@ function AuthPanel({ authService }: { authService: AuthService }) {
     )
 }
 
-export function App({ authService = defaultAuthService }: { authService?: AuthService }) {
+export function App({
+    authService = defaultAuthService,
+    adminService = defaultAdminService,
+}: {
+    authService?: AuthService
+    adminService?: AdminService
+}) {
     const session = authService.useSession()
 
     if (session.isPending) return <LoadingScreen />
-    if (session.data) return <Dashboard authService={authService} session={session.data} />
+    if (session.data) {
+        return (
+            <Dashboard
+                authService={authService}
+                adminService={adminService}
+                session={session.data}
+            />
+        )
+    }
 
     return <AuthPanel authService={authService} />
 }

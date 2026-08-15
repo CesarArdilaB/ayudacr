@@ -35,4 +35,23 @@ describe('Better Auth configuration', () => {
             protocol: 'https',
         })
     })
+
+    it('exposes the stored role in authenticated user sessions without accepting it on sign-up', () => {
+        const configuredAuth = authModule.createAuth(
+            memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+            {
+                authSecret: 'role-test-secret-that-is-longer-than-thirty-two-characters',
+                authUrl: 'http://127.0.0.1',
+                databaseUrl: 'memory://role-test',
+                port: 3005,
+                trustedOrigins: ['http://127.0.0.1'],
+            },
+        )
+
+        expect(configuredAuth.options.user?.additionalFields?.role).toMatchObject({
+            type: 'string',
+            input: false,
+            defaultValue: 'evaluator',
+        })
+    })
 })

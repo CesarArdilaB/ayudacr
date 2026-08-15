@@ -39,6 +39,15 @@ export function createAuth(database: AuthDatabase, config = serverConfig) {
             enabled: true,
             minPasswordLength: 8,
         },
+        user: {
+            additionalFields: {
+                role: {
+                    type: 'string',
+                    input: false,
+                    defaultValue: 'evaluator',
+                },
+            },
+        },
         session: {
             expiresIn: 60 * 60 * 24 * 7,
             updateAge: 60 * 60 * 24,
