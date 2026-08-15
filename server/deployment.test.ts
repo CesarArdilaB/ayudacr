@@ -3,6 +3,14 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 describe('Vercel deployment contract', () => {
+    it('pins the TypeScript compiler supported by the Vercel function builder', () => {
+        const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+            devDependencies?: Record<string, string>
+        }
+
+        expect(packageJson.devDependencies?.typescript).toBe('5.9.3')
+    })
+
     it('provides an API function entrypoint', () => {
         expect(existsSync('api/index.ts')).toBe(true)
     })
@@ -20,14 +28,6 @@ describe('Vercel deployment contract', () => {
         expect(typeof ts.findConfigFile).toBe('function')
         expect(typeof ts.readConfigFile).toBe('function')
         expect(typeof ts.parseJsonConfigFileContent).toBe('function')
-    })
-
-    it('pins the TypeScript devDependency to the 5.x line', () => {
-        const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
-            devDependencies?: Record<string, string>
-        }
-
-        expect(manifest.devDependencies?.typescript).toMatch(/^[~^]?5\./)
     })
 
     it('builds the Vite SPA and preserves API routes before the SPA fallback', () => {
