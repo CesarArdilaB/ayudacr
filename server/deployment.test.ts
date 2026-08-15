@@ -2,6 +2,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 describe('Vercel deployment contract', () => {
+    it('pins the TypeScript compiler supported by the Vercel function builder', () => {
+        const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+            devDependencies?: Record<string, string>
+        }
+
+        expect(packageJson.devDependencies?.typescript).toBe('5.9.3')
+    })
+
     it('provides an API function entrypoint', () => {
         expect(existsSync('api/index.ts')).toBe(true)
     })

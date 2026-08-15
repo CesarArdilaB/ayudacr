@@ -76,7 +76,7 @@ export function createAssessmentsRouter({
             }
 
             const parsed = parseAssessmentSubmission(request.body)
-            if (!parsed.success) {
+            if (parsed.success === false) {
                 response.status(400).json({
                     error: 'Assessment validation failed',
                     details: parsed.errors,
