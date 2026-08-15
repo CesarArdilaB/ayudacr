@@ -28,7 +28,11 @@ function authBaseURL(config: typeof serverConfig) {
     }
 }
 
-export function createAuth(database: AuthDatabase, config = serverConfig) {
+export function createAuth(
+    database: AuthDatabase,
+    config = serverConfig,
+    options: { allowPublicSignUp?: boolean } = {},
+) {
     return betterAuth({
         appName: 'Respuesta Colombia',
         baseURL: authBaseURL(config),
@@ -37,6 +41,7 @@ export function createAuth(database: AuthDatabase, config = serverConfig) {
         trustedOrigins: config.trustedOrigins,
         emailAndPassword: {
             enabled: true,
+            disableSignUp: !options.allowPublicSignUp,
             minPasswordLength: 8,
         },
         user: {

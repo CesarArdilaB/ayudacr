@@ -8,7 +8,6 @@ function createAuthService(overrides: Partial<AuthService> = {}): AuthService {
     return {
         useSession: () => ({ data: null, isPending: false }),
         signIn: vi.fn().mockResolvedValue({}),
-        signUp: vi.fn().mockResolvedValue({}),
         signOut: vi.fn().mockResolvedValue({}),
         ...overrides,
     }
@@ -45,24 +44,14 @@ describe('App', () => {
         expect(screen.getByRole('button', { name: 'Ingresar al sistema' })).toBeInTheDocument()
     })
 
-    it('switches to account creation and submits normalized values', async () => {
-        const user = userEvent.setup()
-        const signUp = vi.fn().mockResolvedValue({})
-        const authService = createAuthService({ signUp })
+    it('does not offer public account creation', () => {
+        render(<App authService={createAuthService()} />)
 
-        render(<App authService={authService} />)
-
-        await user.click(screen.getByRole('button', { name: 'Crear cuenta' }))
-        await user.type(screen.getByLabelText('Nombre'), '  Ana Solís  ')
-        await user.type(screen.getByLabelText('Correo electrónico'), 'ANA@EXAMPLE.COM')
-        await user.type(screen.getByLabelText('Contraseña'), 'segura-123')
-        await user.click(screen.getByRole('button', { name: 'Crear perfil de evaluación' }))
-
-        expect(signUp).toHaveBeenCalledWith({
-            name: 'Ana Solís',
-            email: 'ana@example.com',
-            password: 'segura-123',
-        })
+        expect(screen.queryByRole('button', { name: 'Crear cuenta' })).not.toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Crear perfil de evaluación' }),
+        ).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Nombre')).not.toBeInTheDocument()
     })
 
     it('shows the protected shelter assessment and signs the member out', async () => {

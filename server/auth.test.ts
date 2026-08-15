@@ -54,4 +54,34 @@ describe('Better Auth configuration', () => {
             defaultValue: 'evaluator',
         })
     })
+
+    it('rejects public email and password sign-up', async () => {
+        const configuredAuth = authModule.createAuth(
+            memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+            {
+                authSecret: 'closed-signup-secret-that-is-longer-than-thirty-two-characters',
+                authUrl: 'http://127.0.0.1',
+                databaseUrl: 'memory://closed-signup-test',
+                port: 3005,
+                trustedOrigins: ['http://127.0.0.1'],
+            },
+        )
+
+        const response = await configuredAuth.handler(
+            new Request('http://127.0.0.1/api/auth/sign-up/email', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1' },
+                body: JSON.stringify({
+                    name: 'Cuenta pública',
+                    email: 'publica@example.com',
+                    password: 'secure-password',
+                }),
+            }),
+        )
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({
+            code: 'EMAIL_PASSWORD_SIGN_UP_DISABLED',
+        })
+    })
 })

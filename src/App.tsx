@@ -4,7 +4,7 @@ import { AssessmentForm } from './components/AssessmentForm'
 import { type AdminAssessment, listAdminAssessments } from './lib/admin-api'
 import { postAssessment } from './lib/assessment-api'
 import { authClient } from './lib/auth-client'
-import { type AuthMode, prepareAuthForm } from './lib/auth-form'
+import { prepareAuthForm } from './lib/auth-form'
 
 type SessionData = {
     user: {
@@ -23,7 +23,6 @@ type AuthResult = {
 export type AuthService = {
     useSession: () => { data: SessionData; isPending: boolean }
     signIn: (values: { email: string; password: string }) => Promise<AuthResult>
-    signUp: (values: { name: string; email: string; password: string }) => Promise<AuthResult>
     signOut: () => Promise<unknown>
 }
 
@@ -37,7 +36,6 @@ const defaultAuthService: AuthService = {
         return { data: session.data, isPending: session.isPending }
     },
     signIn: (values) => authClient.signIn.email(values),
-    signUp: (values) => authClient.signUp.email(values),
     signOut: () => authClient.signOut(),
 }
 
@@ -130,18 +128,9 @@ function Dashboard({
 }
 
 function AuthPanel({ authService }: { authService: AuthService }) {
-    const [mode, setMode] = useState<AuthMode>('sign-in')
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
     const [serverError, setServerError] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
-
-    const isSignUp = mode === 'sign-up'
-
-    function changeMode(nextMode: AuthMode) {
-        setMode(nextMode)
-        setFieldErrors({})
-        setServerError('')
-    }
 
     async function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
@@ -149,8 +138,8 @@ function AuthPanel({ authService }: { authService: AuthService }) {
 
         const form = new FormData(event.currentTarget)
         const prepared = prepareAuthForm({
-            mode,
-            name: String(form.get('name') ?? ''),
+            mode: 'sign-in',
+            name: '',
             email: String(form.get('email') ?? ''),
             password: String(form.get('password') ?? ''),
         })
@@ -161,16 +150,10 @@ function AuthPanel({ authService }: { authService: AuthService }) {
         setIsSubmitting(true)
 
         try {
-            const result = isSignUp
-                ? await authService.signUp({
-                      name: prepared.data.name ?? '',
-                      email: prepared.data.email,
-                      password: prepared.data.password,
-                  })
-                : await authService.signIn({
-                      email: prepared.data.email,
-                      password: prepared.data.password,
-                  })
+            const result = await authService.signIn({
+                email: prepared.data.email,
+                password: prepared.data.password,
+            })
 
             if (result.error) {
                 setServerError(
@@ -225,59 +208,15 @@ function AuthPanel({ authService }: { authService: AuthService }) {
                     <Brand />
                 </div>
                 <div className="form-wrap">
-                    <fieldset className="mode-switch" aria-label="Elegir acceso">
-                        <button
-                            className={mode === 'sign-in' ? 'active' : ''}
-                            type="button"
-                            onClick={() => changeMode('sign-in')}
-                        >
-                            Iniciar sesión
-                        </button>
-                        <button
-                            className={mode === 'sign-up' ? 'active' : ''}
-                            type="button"
-                            onClick={() => changeMode('sign-up')}
-                        >
-                            Crear cuenta
-                        </button>
-                    </fieldset>
-
                     <div className="form-heading">
-                        <span className="form-index">{isSignUp ? '02' : '01'}</span>
+                        <span className="form-index">01</span>
                         <div>
-                            <h2>
-                                {isSignUp
-                                    ? 'Creá tu perfil de evaluación.'
-                                    : 'Entrá al centro de respuesta.'}
-                            </h2>
-                            <p>
-                                {isSignUp
-                                    ? 'El acceso permite registrar visitas de forma segura.'
-                                    : 'Acceso para personal autorizado en terreno.'}
-                            </p>
+                            <h2>Entrá al centro de respuesta.</h2>
+                            <p>Acceso para personal autorizado en terreno.</p>
                         </div>
                     </div>
 
                     <form onSubmit={submit} noValidate>
-                        {isSignUp && (
-                            <label>
-                                <span>Nombre</span>
-                                <input
-                                    name="name"
-                                    type="text"
-                                    autoComplete="name"
-                                    aria-invalid={Boolean(fieldErrors.name)}
-                                    aria-describedby={fieldErrors.name ? 'name-error' : undefined}
-                                    placeholder="Tu nombre"
-                                />
-                                {fieldErrors.name && (
-                                    <small id="name-error" className="field-error">
-                                        {fieldErrors.name}
-                                    </small>
-                                )}
-                            </label>
-                        )}
-
                         <label>
                             <span>Correo electrónico</span>
                             <input
@@ -300,7 +239,7 @@ function AuthPanel({ authService }: { authService: AuthService }) {
                             <input
                                 name="password"
                                 type="password"
-                                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                                autoComplete="current-password"
                                 aria-invalid={Boolean(fieldErrors.password)}
                                 aria-describedby={
                                     fieldErrors.password ? 'password-error' : undefined
@@ -321,13 +260,7 @@ function AuthPanel({ authService }: { authService: AuthService }) {
                         )}
 
                         <button className="submit-button" type="submit" disabled={isSubmitting}>
-                            <span>
-                                {isSubmitting
-                                    ? 'Conectando…'
-                                    : isSignUp
-                                      ? 'Crear perfil de evaluación'
-                                      : 'Ingresar al sistema'}
-                            </span>
+                            <span>{isSubmitting ? 'Conectando…' : 'Ingresar al sistema'}</span>
                             <span aria-hidden="true">↗</span>
                         </button>
                     </form>

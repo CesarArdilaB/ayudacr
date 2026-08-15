@@ -58,6 +58,7 @@ describe('release-critical evaluator journey', () => {
         const testAuth = createAuth(
             memoryAdapter({ user: [], session: [], account: [], verification: [] }),
             authConfig,
+            { allowPublicSignUp: true },
         )
         const saved: Array<{ submission: AssessmentSubmission; userId: string }> = []
         const repository: AssessmentRepository = {
