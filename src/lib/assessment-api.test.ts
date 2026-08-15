@@ -41,4 +41,23 @@ describe('postAssessment', () => {
             ),
         ).rejects.toThrow('Unable to save the assessment')
     })
+
+    it('translates validation details returned by the API', async () => {
+        await expect(
+            postAssessment(
+                submission,
+                async () =>
+                    new Response(
+                        JSON.stringify({
+                            error: 'Assessment validation failed',
+                            details: ['email must be valid'],
+                        }),
+                        {
+                            status: 400,
+                            headers: { 'content-type': 'application/json' },
+                        },
+                    ),
+            ),
+        ).rejects.toThrow('El correo de contacto no es válido.')
+    })
 })

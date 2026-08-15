@@ -12,9 +12,16 @@ export async function postAssessment(
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(submission),
     })
-    const payload = (await response.json()) as { id?: string; error?: string }
+    const payload = (await response.json()) as {
+        id?: string
+        error?: string
+        details?: string[]
+    }
 
     if (!response.ok || !payload.id) {
+        if (payload.details?.includes('email must be valid')) {
+            throw new Error('El correo de contacto no es válido.')
+        }
         throw new Error(payload.error || 'No se pudo guardar la evaluación.')
     }
 

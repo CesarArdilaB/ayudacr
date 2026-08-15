@@ -5,6 +5,10 @@ import {
     type AssessmentAnswer,
     type AssessmentSubmission,
 } from '../../shared/assessment.js'
+import {
+    COLOMBIA_DEPARTMENTS,
+    municipalitiesForDepartment,
+} from '../../shared/colombia-locations.js'
 
 type AssessmentDetails = Omit<AssessmentSubmission, 'responses' | 'visitors'> & {
     visitorsText: string
@@ -73,6 +77,49 @@ function Field({
     )
 }
 
+function SelectField({
+    label,
+    name,
+    value,
+    options,
+    onChange,
+    disabled = false,
+}: {
+    label: string
+    name: 'department' | 'municipality'
+    value: string
+    options: readonly string[]
+    onChange: (name: keyof AssessmentDetails, value: string) => void
+    disabled?: boolean
+}) {
+    return (
+        <label className="assessment-field">
+            <span>
+                {label} <b aria-hidden="true">*</b>
+            </span>
+            <select
+                aria-label={label}
+                name={name}
+                value={value}
+                required
+                disabled={disabled}
+                onChange={(event) => onChange(name, event.target.value)}
+            >
+                <option value="">
+                    {disabled
+                        ? 'Seleccioná primero el departamento'
+                        : `Seleccioná ${label.toLowerCase()}`}
+                </option>
+                {options.map((option) => (
+                    <option key={option} value={option}>
+                        {option}
+                    </option>
+                ))}
+            </select>
+        </label>
+    )
+}
+
 export function AssessmentForm({
     onSubmit,
 }: {
@@ -94,7 +141,11 @@ export function AssessmentForm({
     )
 
     function updateDetails(name: keyof AssessmentDetails, value: string) {
-        setDetails((current) => ({ ...current, [name]: value }))
+        setDetails((current) => ({
+            ...current,
+            [name]: value,
+            ...(name === 'department' ? { municipality: '' } : {}),
+        }))
         setMessage(undefined)
         setIsSaved(false)
     }
@@ -129,6 +180,14 @@ export function AssessmentForm({
             setMessage({
                 type: 'error',
                 text: 'Completá los campos obligatorios antes de continuar.',
+            })
+            return
+        }
+
+        if (details.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) {
+            setMessage({
+                type: 'error',
+                text: 'Ingresá un correo válido o dejá el campo vacío.',
             })
             return
         }
@@ -192,10 +251,13 @@ export function AssessmentForm({
                 text: `Evaluación guardada. Registro ${result.id.slice(0, 8)}.`,
             })
             setIsSaved(true)
-        } catch {
+        } catch (error) {
             setMessage({
                 type: 'error',
-                text: 'No se pudo guardar la evaluación. Revisá la conexión e intentá nuevamente.',
+                text:
+                    error instanceof Error
+                        ? error.message
+                        : 'No se pudo guardar la evaluación. Revisá la conexión e intentá nuevamente.',
             })
         } finally {
             setIsSaving(false)
@@ -286,19 +348,20 @@ export function AssessmentForm({
                                 type="date"
                                 required
                             />
-                            <Field
-                                label="Municipio"
-                                name="municipality"
-                                value={details.municipality}
-                                onChange={updateDetails}
-                                required
-                            />
-                            <Field
+                            <SelectField
                                 label="Departamento"
                                 name="department"
                                 value={details.department}
+                                options={COLOMBIA_DEPARTMENTS}
                                 onChange={updateDetails}
-                                required
+                            />
+                            <SelectField
+                                label="Municipio"
+                                name="municipality"
+                                value={details.municipality}
+                                options={municipalitiesForDepartment(details.department)}
+                                onChange={updateDetails}
+                                disabled={!details.department}
                             />
                             <Field
                                 label="Persona de contacto"

@@ -8,8 +8,8 @@ async function completeAssessment(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('Institución visitada'), 'Coliseo El Pueblo')
     await user.clear(screen.getByLabelText('Fecha de la visita'))
     await user.type(screen.getByLabelText('Fecha de la visita'), '2026-08-15')
-    await user.type(screen.getByLabelText('Municipio'), 'Cali')
-    await user.type(screen.getByLabelText('Departamento'), 'Valle del Cauca')
+    await user.selectOptions(screen.getByLabelText('Departamento'), 'VALLE DEL CAUCA')
+    await user.selectOptions(screen.getByLabelText('Municipio'), 'CALI')
     await user.type(screen.getByLabelText('Persona de contacto'), 'Ana Torres')
     await user.click(screen.getByRole('button', { name: 'Comenzar evaluación' }))
 
@@ -64,6 +64,44 @@ describe('AssessmentForm', () => {
         ).toBeInTheDocument()
     })
 
+    it('only offers municipalities from the selected department', async () => {
+        const user = userEvent.setup()
+        render(<AssessmentForm onSubmit={async () => ({ id: 'assessment-1' })} />)
+
+        const department = screen.getByRole('combobox', { name: 'Departamento' })
+        const municipality = screen.getByRole('combobox', { name: 'Municipio' })
+
+        expect(municipality).toBeDisabled()
+        await user.selectOptions(department, 'ANTIOQUIA')
+
+        expect(municipality).toBeEnabled()
+        expect(screen.getByRole('option', { name: 'MEDELLÍN' })).toBeInTheDocument()
+        expect(screen.queryByRole('option', { name: 'CALI' })).not.toBeInTheDocument()
+
+        await user.selectOptions(department, 'VALLE DEL CAUCA')
+        expect(municipality).toHaveValue('')
+        expect(screen.getByRole('option', { name: 'CALI' })).toBeInTheDocument()
+    })
+
+    it('does not advance with a malformed optional contact email', async () => {
+        const user = userEvent.setup()
+        render(<AssessmentForm onSubmit={async () => ({ id: 'assessment-1' })} />)
+
+        await user.type(screen.getByLabelText('Institución visitada'), 'Coliseo El Pueblo')
+        await user.selectOptions(screen.getByLabelText('Departamento'), 'VALLE DEL CAUCA')
+        await user.selectOptions(screen.getByLabelText('Municipio'), 'CALI')
+        await user.type(screen.getByLabelText('Persona de contacto'), 'Ana Torres')
+        await user.type(screen.getByLabelText('Correo'), 'correo-invalido')
+        await user.click(screen.getByRole('button', { name: 'Comenzar evaluación' }))
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+            'Ingresá un correo válido o dejá el campo vacío.',
+        )
+        expect(
+            screen.getByRole('heading', { name: 'Información del alojamiento' }),
+        ).toBeInTheDocument()
+    })
+
     it('captures every criterion and submits the reviewed assessment', async () => {
         const user = userEvent.setup()
         const scrollTo = vi.spyOn(window, 'scrollTo')
@@ -88,7 +126,8 @@ describe('AssessmentForm', () => {
         expect(screen.getByRole('button', { name: 'Evaluación guardada' })).toBeDisabled()
         expect(captured).toMatchObject({
             institution: 'Coliseo El Pueblo',
-            municipality: 'Cali',
+            municipality: 'CALI',
+            department: 'VALLE DEL CAUCA',
             responses: expect.arrayContaining([
                 expect.objectContaining({ criterionKey: 'dignity_pregnant', answer: 'yes' }),
             ]),
@@ -109,9 +148,7 @@ describe('AssessmentForm', () => {
         await completeAssessment(user)
         await user.click(screen.getByRole('button', { name: 'Guardar evaluación' }))
 
-        expect(await screen.findByRole('alert')).toHaveTextContent(
-            'No se pudo guardar la evaluación.',
-        )
+        expect(await screen.findByRole('alert')).toHaveTextContent('network unavailable')
         expect(screen.getByRole('heading', { name: 'Revisión final' })).toBeInTheDocument()
     })
 })
