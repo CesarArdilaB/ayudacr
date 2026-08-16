@@ -2,11 +2,25 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingHttpHeaders } from 'node:http'
 import { hashPassword } from 'better-auth/crypto'
 import { fromNodeHeaders } from 'better-auth/node'
-import { and, count, desc, eq } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import { type Response, Router } from 'express'
+import {
+    type AssessmentCsvRecord,
+    type AssessmentPdfRecord,
+    createAssessmentCsvChunk,
+    createAssessmentCsvHeader,
+    createAssessmentPdf,
+} from './assessment-exports.js'
 import { auth, createAuth, databasePool, serverConfig } from './auth.js'
 import { db } from './db/index.js'
-import { account, assessmentResponses, session, shelterAssessments, user } from './db/schema.js'
+import {
+    account,
+    assessmentPhotos,
+    assessmentResponses,
+    session,
+    shelterAssessments,
+    user,
+} from './db/schema.js'
 
 export type AdminSession = {
     user: { id: string; role: 'evaluator' | 'super_admin' }
@@ -27,6 +41,8 @@ export type AdminAssessment = {
 
 export type AdminAssessmentRepository = {
     list(): Promise<AdminAssessment[]>
+    streamCsvBatches(): AsyncIterable<AssessmentCsvRecord>
+    findDetailed(id: string): Promise<AssessmentPdfRecord | null>
 }
 
 export type AdminUser = {
@@ -58,41 +74,206 @@ const betterAuthAdminSessionResolver: AdminSessionResolver = async (headers) => 
     }
 }
 
-export const drizzleAdminAssessmentRepository: AdminAssessmentRepository = {
-    async list() {
-        const records = await db
-            .select({
-                id: shelterAssessments.id,
-                institution: shelterAssessments.institution,
-                visitDate: shelterAssessments.visitDate,
-                municipality: shelterAssessments.municipality,
-                department: shelterAssessments.department,
-                createdAt: shelterAssessments.createdAt,
-                creatorName: user.name,
-                creatorEmail: user.email,
-                responseCount: count(assessmentResponses.id),
-            })
-            .from(shelterAssessments)
-            .innerJoin(user, eq(shelterAssessments.createdByUserId, user.id))
-            .leftJoin(
-                assessmentResponses,
-                eq(assessmentResponses.assessmentId, shelterAssessments.id),
-            )
-            .groupBy(shelterAssessments.id, user.id)
-            .orderBy(desc(shelterAssessments.createdAt))
+export function createDrizzleAdminAssessmentRepository(
+    database: typeof db = db,
+): AdminAssessmentRepository {
+    return {
+        async list() {
+            const records = await database
+                .select({
+                    id: shelterAssessments.id,
+                    institution: shelterAssessments.institution,
+                    visitDate: shelterAssessments.visitDate,
+                    municipality: shelterAssessments.municipality,
+                    department: shelterAssessments.department,
+                    createdAt: shelterAssessments.createdAt,
+                    creatorName: user.name,
+                    creatorEmail: user.email,
+                    responseCount: count(assessmentResponses.id),
+                })
+                .from(shelterAssessments)
+                .innerJoin(user, eq(shelterAssessments.createdByUserId, user.id))
+                .leftJoin(
+                    assessmentResponses,
+                    eq(assessmentResponses.assessmentId, shelterAssessments.id),
+                )
+                .groupBy(shelterAssessments.id, user.id)
+                .orderBy(desc(shelterAssessments.createdAt))
 
-        return records.map((record) => ({
-            id: record.id,
-            institution: record.institution,
-            visitDate: record.visitDate,
-            municipality: record.municipality,
-            department: record.department,
-            createdAt: record.createdAt.toISOString(),
-            createdBy: { name: record.creatorName, email: record.creatorEmail },
-            responseCount: record.responseCount,
-        }))
-    },
+            return records.map((record) => ({
+                id: record.id,
+                institution: record.institution,
+                visitDate: record.visitDate,
+                municipality: record.municipality,
+                department: record.department,
+                createdAt: record.createdAt.toISOString(),
+                createdBy: { name: record.creatorName, email: record.creatorEmail },
+                responseCount: record.responseCount,
+            }))
+        },
+        async *streamCsvBatches() {
+            const batchSize = 100
+            let cursor: { createdAt: Date; id: string } | undefined
+            while (true) {
+                const records = await database
+                    .select({
+                        id: shelterAssessments.id,
+                        formVersion: shelterAssessments.formVersion,
+                        institution: shelterAssessments.institution,
+                        visitDate: shelterAssessments.visitDate,
+                        municipality: shelterAssessments.municipality,
+                        department: shelterAssessments.department,
+                        contactName: shelterAssessments.contactName,
+                        contactRole: shelterAssessments.contactRole,
+                        phone: shelterAssessments.phone,
+                        email: shelterAssessments.email,
+                        protectionRiskDetails: shelterAssessments.protectionRiskDetails,
+                        generalObservations: shelterAssessments.generalObservations,
+                        visitors: shelterAssessments.visitors,
+                        createdAt: shelterAssessments.createdAt,
+                        creatorName: user.name,
+                        creatorEmail: user.email,
+                    })
+                    .from(shelterAssessments)
+                    .innerJoin(user, eq(shelterAssessments.createdByUserId, user.id))
+                    .where(
+                        cursor
+                            ? or(
+                                  lt(shelterAssessments.createdAt, cursor.createdAt),
+                                  and(
+                                      eq(shelterAssessments.createdAt, cursor.createdAt),
+                                      lt(shelterAssessments.id, cursor.id),
+                                  ),
+                              )
+                            : undefined,
+                    )
+                    .orderBy(desc(shelterAssessments.createdAt), desc(shelterAssessments.id))
+                    .limit(batchSize)
+
+                if (!records.length) return
+                const assessmentIds = records.map((record) => record.id)
+                const [responses, photoCounts] = await Promise.all([
+                    database
+                        .select({
+                            assessmentId: assessmentResponses.assessmentId,
+                            criterionKey: assessmentResponses.criterionKey,
+                            answer: assessmentResponses.answer,
+                            comments: assessmentResponses.comments,
+                            quantities: assessmentResponses.quantities,
+                        })
+                        .from(assessmentResponses)
+                        .where(inArray(assessmentResponses.assessmentId, assessmentIds))
+                        .orderBy(
+                            asc(assessmentResponses.assessmentId),
+                            asc(assessmentResponses.criterionKey),
+                        ),
+                    database
+                        .select({
+                            assessmentId: assessmentPhotos.assessmentId,
+                            photoCount: count(assessmentPhotos.id),
+                        })
+                        .from(assessmentPhotos)
+                        .where(inArray(assessmentPhotos.assessmentId, assessmentIds))
+                        .groupBy(assessmentPhotos.assessmentId),
+                ])
+                const responsesByAssessment = new Map<string, typeof responses>()
+                for (const response of responses) {
+                    const grouped = responsesByAssessment.get(response.assessmentId) ?? []
+                    grouped.push(response)
+                    responsesByAssessment.set(response.assessmentId, grouped)
+                }
+                const photoCountByAssessment = new Map(
+                    photoCounts.map((record) => [record.assessmentId, record.photoCount]),
+                )
+                for (const record of records) {
+                    yield {
+                        id: record.id,
+                        formVersion: record.formVersion,
+                        institution: record.institution,
+                        visitDate: record.visitDate,
+                        municipality: record.municipality,
+                        department: record.department,
+                        contactName: record.contactName,
+                        contactRole: record.contactRole,
+                        phone: record.phone,
+                        email: record.email,
+                        protectionRiskDetails: record.protectionRiskDetails,
+                        generalObservations: record.generalObservations,
+                        visitors: record.visitors,
+                        createdAt: record.createdAt,
+                        createdBy: `${record.creatorName} <${record.creatorEmail}>`,
+                        responses: (responsesByAssessment.get(record.id) ?? []).map((response) => ({
+                            criterionKey: response.criterionKey,
+                            answer: response.answer,
+                            comments: response.comments,
+                            quantities: response.quantities,
+                        })),
+                        photoCount: photoCountByAssessment.get(record.id) ?? 0,
+                    }
+                }
+                const last = records.at(-1)
+                if (!last || records.length < batchSize) return
+                cursor = { createdAt: last.createdAt, id: last.id }
+            }
+        },
+        async findDetailed(id) {
+            const [record] = await database
+                .select({
+                    id: shelterAssessments.id,
+                    formVersion: shelterAssessments.formVersion,
+                    institution: shelterAssessments.institution,
+                    visitDate: shelterAssessments.visitDate,
+                    municipality: shelterAssessments.municipality,
+                    department: shelterAssessments.department,
+                    contactName: shelterAssessments.contactName,
+                    contactRole: shelterAssessments.contactRole,
+                    phone: shelterAssessments.phone,
+                    email: shelterAssessments.email,
+                    protectionRiskDetails: shelterAssessments.protectionRiskDetails,
+                    generalObservations: shelterAssessments.generalObservations,
+                    visitors: shelterAssessments.visitors,
+                    createdAt: shelterAssessments.createdAt,
+                    creatorName: user.name,
+                    creatorEmail: user.email,
+                })
+                .from(shelterAssessments)
+                .innerJoin(user, eq(shelterAssessments.createdByUserId, user.id))
+                .where(eq(shelterAssessments.id, id))
+            if (!record) return null
+
+            const [responses, photos] = await Promise.all([
+                database
+                    .select({
+                        criterionKey: assessmentResponses.criterionKey,
+                        answer: assessmentResponses.answer,
+                        comments: assessmentResponses.comments,
+                        quantities: assessmentResponses.quantities,
+                    })
+                    .from(assessmentResponses)
+                    .where(eq(assessmentResponses.assessmentId, id))
+                    .orderBy(asc(assessmentResponses.criterionKey)),
+                database
+                    .select({
+                        position: assessmentPhotos.position,
+                        mimeType: assessmentPhotos.mimeType,
+                        data: assessmentPhotos.data,
+                    })
+                    .from(assessmentPhotos)
+                    .where(eq(assessmentPhotos.assessmentId, id))
+                    .orderBy(asc(assessmentPhotos.position)),
+            ])
+            const { creatorName, creatorEmail, ...metadata } = record
+            return {
+                ...metadata,
+                createdBy: `${creatorName} <${creatorEmail}>`,
+                responses,
+                photos,
+            }
+        },
+    }
 }
+
+export const drizzleAdminAssessmentRepository = createDrizzleAdminAssessmentRepository()
 
 const internalUserAuth = createAuth(databasePool, serverConfig, { allowPublicSignUp: true })
 
@@ -212,14 +393,73 @@ function userError(response: Response, error: unknown) {
     response.status(500).json({ error: 'Unable to manage user' })
 }
 
+function csvDownloadFilename(): string {
+    return `evaluaciones-albergues-${new Date().toISOString().slice(0, 10)}.csv`
+}
+
+function setCsvHeaders(response: Response): void {
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    response.setHeader('Content-Disposition', `attachment; filename="${csvDownloadFilename()}"`)
+    response.setHeader('Cache-Control', 'private, no-store')
+}
+
+async function writeWithBackpressure(response: Response, chunk: string): Promise<void> {
+    if (response.destroyed || response.writableEnded) throw new Error('Response closed')
+    if (response.write(chunk)) return
+    await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+            response.removeListener('drain', onDrain)
+            response.removeListener('close', onClose)
+        }
+        const onDrain = () => {
+            cleanup()
+            resolve()
+        }
+        const onClose = () => {
+            cleanup()
+            reject(new Error('Response closed'))
+        }
+        response.once('drain', onDrain)
+        response.once('close', onClose)
+    })
+}
+
+export async function streamAssessmentCsv(
+    response: Response,
+    records: AsyncIterable<AssessmentCsvRecord>,
+): Promise<void> {
+    const iterator = records[Symbol.asyncIterator]()
+    try {
+        const first = await iterator.next()
+        setCsvHeaders(response)
+        await writeWithBackpressure(response, createAssessmentCsvHeader())
+        if (!first.done) {
+            await writeWithBackpressure(response, createAssessmentCsvChunk(first.value))
+            while (true) {
+                const next = await iterator.next()
+                if (next.done) break
+                await writeWithBackpressure(response, createAssessmentCsvChunk(next.value))
+            }
+        }
+        response.end()
+    } catch (error) {
+        await iterator.return?.()
+        throw error
+    }
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+
 export function createAdminRouter({
     sessionResolver = betterAuthAdminSessionResolver,
     assessmentRepository = drizzleAdminAssessmentRepository,
     userService = drizzleAdminUserService,
+    pdfGenerator = createAssessmentPdf,
 }: {
     sessionResolver?: AdminSessionResolver
     assessmentRepository?: AdminAssessmentRepository
     userService?: AdminUserService
+    pdfGenerator?: (record: AssessmentPdfRecord) => Promise<Uint8Array>
 } = {}) {
     const router = Router()
 
@@ -234,6 +474,54 @@ export function createAdminRouter({
             return
         }
         next()
+    })
+
+    router.head('/assessments.csv', (_request, response) => {
+        setCsvHeaders(response)
+        response.status(200).end()
+    })
+
+    router.get('/assessments.csv', async (_request, response) => {
+        try {
+            await streamAssessmentCsv(response, assessmentRepository.streamCsvBatches())
+        } catch (error) {
+            console.error('Unable to export shelter assessments', error)
+            if (response.headersSent) {
+                response.destroy(error instanceof Error ? error : undefined)
+                return
+            }
+            response.status(500).json({ error: 'Unable to export assessments' })
+        }
+    })
+
+    router.get('/assessments/:assessmentId.pdf', async (request, response) => {
+        const assessmentId = request.params.assessmentId
+        if (!UUID_PATTERN.test(assessmentId)) {
+            response.status(400).json({ error: 'Invalid assessment ID' })
+            return
+        }
+        try {
+            const record = await assessmentRepository.findDetailed(assessmentId)
+            if (!record) {
+                response.status(404).json({ error: 'Assessment not found' })
+                return
+            }
+            const pdf = await pdfGenerator(record)
+            response.setHeader('Content-Type', 'application/pdf')
+            response.setHeader(
+                'Content-Disposition',
+                `attachment; filename="evaluacion-${assessmentId}.pdf"`,
+            )
+            response.setHeader('Cache-Control', 'private, no-store')
+            response.send(Buffer.from(pdf))
+        } catch (error) {
+            console.error('Unable to export shelter assessment', error)
+            if (response.headersSent) {
+                response.destroy(error instanceof Error ? error : undefined)
+                return
+            }
+            response.status(500).json({ error: 'Unable to export assessment' })
+        }
     })
 
     router.get('/assessments', async (_request, response) => {
