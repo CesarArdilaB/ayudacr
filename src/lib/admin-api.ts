@@ -92,10 +92,14 @@ function decodeFilename(value: string): string | undefined {
     }
 }
 
-export async function downloadAdminAssessmentPdf(assessmentId: string): Promise<void> {
+export async function downloadAdminAssessmentPdf(
+    assessmentId: string,
+    signal?: AbortSignal,
+): Promise<void> {
     const response = await fetch(`/api/admin/assessments/${encodeURIComponent(assessmentId)}.pdf`, {
         credentials: 'include',
         headers: { accept: 'application/pdf' },
+        ...(signal ? { signal } : {}),
     })
     if (!response.ok) throw downloadError(response)
 
@@ -108,18 +112,22 @@ export async function downloadAdminAssessmentPdf(assessmentId: string): Promise<
     )
     anchor.hidden = true
     document.body.append(anchor)
-    try {
-        anchor.click()
-    } finally {
+    anchor.click()
+    window.setTimeout(() => {
         anchor.remove()
         URL.revokeObjectURL(objectUrl)
-    }
+    }, 1_500)
 }
 
-export async function downloadAdminAssessmentsCsv(): Promise<void> {
+export type NativeDownloadHandle = { dispose: () => void }
+
+export async function downloadAdminAssessmentsCsv(
+    signal?: AbortSignal,
+): Promise<NativeDownloadHandle> {
     const response = await fetch('/api/admin/assessments.csv', {
         method: 'HEAD',
         credentials: 'include',
+        ...(signal ? { signal } : {}),
     })
     if (!response.ok) throw downloadError(response)
 
@@ -129,7 +137,15 @@ export async function downloadAdminAssessmentsCsv(): Promise<void> {
     frame.setAttribute('aria-hidden', 'true')
     frame.hidden = true
     document.body.append(frame)
-    window.setTimeout(() => frame.remove(), 60_000)
+    let disposed = false
+    const cleanupTimer = window.setTimeout(() => dispose(), 6 * 60_000)
+    function dispose() {
+        if (disposed) return
+        disposed = true
+        window.clearTimeout(cleanupTimer)
+        frame.remove()
+    }
+    return { dispose }
 }
 
 export async function listAdminUsers(): Promise<{ users: AdminUser[] }> {

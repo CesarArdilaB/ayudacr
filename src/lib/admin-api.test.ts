@@ -123,6 +123,7 @@ describe('admin user API', () => {
 
 describe('admin assessment downloads', () => {
     it('downloads an assessment PDF with credentials and a safe server filename', async () => {
+        vi.useFakeTimers()
         const fetcher = vi.fn().mockResolvedValue(
             new Response(new Blob(['pdf']), {
                 headers: {
@@ -159,11 +160,16 @@ describe('admin assessment downloads', () => {
         expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob))
         expect(click).toHaveBeenCalledOnce()
         expect(clickedAnchor?.download).toBe('evaluación-coliseo.pdf')
+        expect(revokeObjectUrl).not.toHaveBeenCalled()
+        expect(document.querySelector('a[download]')).toBeInTheDocument()
+
+        vi.runAllTimers()
         expect(revokeObjectUrl).toHaveBeenCalledWith('blob:assessment')
         expect(document.querySelector('a[download]')).not.toBeInTheDocument()
     })
 
     it('uses a safe fallback when the PDF filename is unsafe', async () => {
+        vi.useFakeTimers()
         vi.stubGlobal(
             'fetch',
             vi.fn().mockResolvedValue(
@@ -187,6 +193,7 @@ describe('admin assessment downloads', () => {
         await downloadAdminAssessmentPdf('record-42')
 
         expect(clickedAnchor?.download).toBe('evaluacion-record-42.pdf')
+        vi.runAllTimers()
     })
 
     it.each([
@@ -236,7 +243,10 @@ describe('admin assessment downloads', () => {
         expect(frame).toBeInTheDocument()
         expect(frame).toHaveAttribute('aria-hidden', 'true')
 
-        vi.runAllTimers()
+        vi.advanceTimersByTime(60_000)
+        expect(frame).toBeInTheDocument()
+
+        vi.advanceTimersByTime(5 * 60_000)
         expect(frame).not.toBeInTheDocument()
         vi.useRealTimers()
     })

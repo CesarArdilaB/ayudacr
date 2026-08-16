@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
     type AdminAssessment,
     downloadAdminAssessmentPdf,
     downloadAdminAssessmentsCsv,
+    type NativeDownloadHandle,
 } from '../lib/admin-api.js'
 
 function messageFrom(error: unknown): string {
@@ -17,17 +18,39 @@ export function AdminRecords({
     downloadCsv = downloadAdminAssessmentsCsv,
 }: {
     loadRecords: () => Promise<{ records: AdminAssessment[] }>
-    downloadPdf?: (assessmentId: string) => Promise<void>
-    downloadCsv?: () => Promise<void>
+    downloadPdf?: (assessmentId: string, signal?: AbortSignal) => Promise<void>
+    downloadCsv?: (signal?: AbortSignal) => Promise<NativeDownloadHandle | undefined>
 }) {
     const [records, setRecords] = useState<AdminAssessment[]>([])
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
     const [pendingPdfIds, setPendingPdfIds] = useState<Set<string>>(() => new Set())
     const [csvPending, setCsvPending] = useState(false)
+    const [csvAuthorized, setCsvAuthorized] = useState(false)
     const [downloadNotice, setDownloadNotice] = useState<{
         kind: 'success' | 'error'
         message: string
     } | null>(null)
+    const mountedRef = useRef(true)
+    const pendingPdfIdsRef = useRef(new Set<string>())
+    const downloadControllersRef = useRef(new Set<AbortController>())
+    const csvHandlesRef = useRef(new Set<NativeDownloadHandle>())
+    const csvLockRef = useRef(false)
+    const csvLockTimerRef = useRef<number | undefined>(undefined)
+
+    useEffect(() => {
+        mountedRef.current = true
+        return () => {
+            mountedRef.current = false
+            if (csvLockTimerRef.current !== undefined) {
+                window.clearTimeout(csvLockTimerRef.current)
+            }
+            for (const controller of downloadControllersRef.current) controller.abort()
+            downloadControllersRef.current.clear()
+            pendingPdfIdsRef.current.clear()
+            for (const handle of csvHandlesRef.current) handle.dispose()
+            csvHandlesRef.current.clear()
+        }
+    }, [])
 
     useEffect(() => {
         let active = true
@@ -47,37 +70,69 @@ export function AdminRecords({
     }, [loadRecords])
 
     async function handlePdfDownload(record: AdminAssessment) {
-        if (pendingPdfIds.has(record.id)) return
+        if (pendingPdfIdsRef.current.has(record.id)) return
+        pendingPdfIdsRef.current.add(record.id)
+        const controller = new AbortController()
+        downloadControllersRef.current.add(controller)
         setPendingPdfIds((current) => new Set(current).add(record.id))
         setDownloadNotice(null)
         try {
-            await downloadPdf(record.id)
+            await downloadPdf(record.id, controller.signal)
+            if (!mountedRef.current) return
             setDownloadNotice({
                 kind: 'success',
                 message: `PDF de ${record.institution} descargado.`,
             })
         } catch (error) {
+            if (!mountedRef.current || controller.signal.aborted) return
             setDownloadNotice({ kind: 'error', message: messageFrom(error) })
         } finally {
-            setPendingPdfIds((current) => {
-                const next = new Set(current)
-                next.delete(record.id)
-                return next
-            })
+            downloadControllersRef.current.delete(controller)
+            pendingPdfIdsRef.current.delete(record.id)
+            if (mountedRef.current) {
+                setPendingPdfIds((current) => {
+                    const next = new Set(current)
+                    next.delete(record.id)
+                    return next
+                })
+            }
         }
     }
 
     async function handleCsvDownload() {
-        if (csvPending || status !== 'ready') return
+        if (csvLockRef.current || status !== 'ready') return
+        const controller = new AbortController()
+        downloadControllersRef.current.add(controller)
+        csvLockRef.current = true
         setCsvPending(true)
+        setCsvAuthorized(false)
         setDownloadNotice(null)
         try {
-            await downloadCsv()
-            setDownloadNotice({ kind: 'success', message: 'Descarga CSV iniciada.' })
+            const handle = await downloadCsv(controller.signal)
+            if (!mountedRef.current) {
+                handle?.dispose()
+                return
+            }
+            if (handle) csvHandlesRef.current.add(handle)
+            setCsvAuthorized(true)
+            setDownloadNotice({
+                kind: 'success',
+                message: 'Descarga autorizada e iniciada; revisá las descargas del navegador.',
+            })
+            csvLockTimerRef.current = window.setTimeout(() => {
+                csvLockRef.current = false
+                downloadControllersRef.current.delete(controller)
+                if (!mountedRef.current) return
+                setCsvPending(false)
+                setCsvAuthorized(false)
+            }, 10_000)
         } catch (error) {
+            downloadControllersRef.current.delete(controller)
+            csvLockRef.current = false
+            if (!mountedRef.current || controller.signal.aborted) return
             setDownloadNotice({ kind: 'error', message: messageFrom(error) })
-        } finally {
             setCsvPending(false)
+            setCsvAuthorized(false)
         }
     }
 
@@ -98,9 +153,14 @@ export function AdminRecords({
                         className="records-download-all"
                         type="button"
                         disabled={status !== 'ready' || csvPending}
+                        aria-busy={csvPending}
                         onClick={() => void handleCsvDownload()}
                     >
-                        {csvPending ? 'Preparando CSV…' : 'Descargar todos en CSV'}
+                        {csvPending
+                            ? csvAuthorized
+                                ? 'Descarga iniciada…'
+                                : 'Preparando CSV…'
+                            : 'Descargar todos en CSV'}
                     </button>
                 </div>
             </header>
@@ -166,7 +226,12 @@ export function AdminRecords({
                                             className="record-download-button"
                                             type="button"
                                             disabled={pendingPdfIds.has(record.id)}
-                                            aria-label={`Descargar PDF de ${record.institution}`}
+                                            aria-label={`${
+                                                pendingPdfIds.has(record.id)
+                                                    ? 'Descargando'
+                                                    : 'Descargar'
+                                            } PDF de ${record.institution}`}
+                                            aria-busy={pendingPdfIds.has(record.id)}
                                             onClick={() => void handlePdfDownload(record)}
                                         >
                                             {pendingPdfIds.has(record.id)

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminAssessment } from '../lib/admin-api.js'
@@ -76,15 +76,39 @@ describe('AdminRecords exports', () => {
         await user.click(button)
         expect(button).toBeDisabled()
         expect(button).toHaveTextContent('Descargando…')
+        expect(button).toHaveAttribute('aria-label', 'Descargando PDF de Coliseo Central')
+        expect(button).toHaveAttribute('aria-busy', 'true')
         await user.click(button)
         expect(props.downloadPdf).toHaveBeenCalledOnce()
-        expect(props.downloadPdf).toHaveBeenCalledWith('assessment/id')
+        expect(props.downloadPdf).toHaveBeenCalledWith('assessment/id', expect.any(AbortSignal))
 
         finishDownload()
         expect(await screen.findByRole('status')).toHaveTextContent(
             'PDF de Coliseo Central descargado.',
         )
         expect(button).toBeEnabled()
+    })
+
+    it('prevents two PDF activations batched in the same render', async () => {
+        let finishDownload: () => void = () => {}
+        const props = services()
+        props.downloadPdf.mockReturnValue(
+            new Promise<void>((resolve) => {
+                finishDownload = resolve
+            }),
+        )
+        render(<AdminRecords {...props} />)
+        const button = await screen.findByRole('button', {
+            name: 'Descargar PDF de Coliseo Central',
+        })
+
+        act(() => {
+            button.click()
+            button.click()
+        })
+
+        expect(props.downloadPdf).toHaveBeenCalledOnce()
+        await act(async () => finishDownload())
     })
 
     it('announces PDF download errors and re-enables the record action', async () => {
@@ -104,8 +128,9 @@ describe('AdminRecords exports', () => {
         expect(button).toBeEnabled()
     })
 
-    it('prevents duplicate CSV clicks and lets the API create the streaming iframe', async () => {
-        const user = userEvent.setup()
+    it('keeps CSV locked after authorization and accurately announces that download only started', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
         let finishDownload: () => void = () => {}
         const props = services([])
         props.downloadCsv.mockReturnValue(
@@ -119,12 +144,21 @@ describe('AdminRecords exports', () => {
         await user.click(button)
         expect(button).toBeDisabled()
         expect(button).toHaveTextContent('Preparando CSV…')
+        expect(button).toHaveAttribute('aria-busy', 'true')
         await user.click(button)
         expect(props.downloadCsv).toHaveBeenCalledOnce()
 
         finishDownload()
-        expect(await screen.findByRole('status')).toHaveTextContent('Descarga CSV iniciada.')
+        expect(await screen.findByRole('status')).toHaveTextContent(
+            'Descarga autorizada e iniciada; revisá las descargas del navegador.',
+        )
+        expect(button).toBeDisabled()
+
+        await vi.advanceTimersByTimeAsync(9_999)
+        expect(button).toBeDisabled()
+        await vi.advanceTimersByTimeAsync(1)
         expect(button).toBeEnabled()
+        vi.useRealTimers()
     })
 
     it('announces CSV errors and re-enables the global action', async () => {
@@ -160,5 +194,33 @@ describe('AdminRecords exports', () => {
         vi.clearAllTimers()
         document.querySelector('iframe[src="/api/admin/assessments.csv"]')?.remove()
         vi.useRealTimers()
+    })
+
+    it('aborts in-flight downloads and disposes native frames when unmounted', async () => {
+        const user = userEvent.setup()
+        let pdfSignal: AbortSignal | undefined
+        let csvSignal: AbortSignal | undefined
+        const dispose = vi.fn()
+        const props = services()
+        props.downloadPdf.mockImplementation((_id, signal) => {
+            pdfSignal = signal
+            return new Promise<void>(() => {})
+        })
+        props.downloadCsv.mockImplementation((signal) => {
+            csvSignal = signal
+            return Promise.resolve({ dispose })
+        })
+        const view = render(<AdminRecords {...props} />)
+
+        await user.click(
+            await screen.findByRole('button', { name: 'Descargar PDF de Coliseo Central' }),
+        )
+        await user.click(screen.getByRole('button', { name: 'Descargar todos en CSV' }))
+        await screen.findByRole('status')
+        view.unmount()
+
+        expect(pdfSignal?.aborted).toBe(true)
+        expect(csvSignal?.aborted).toBe(true)
+        expect(dispose).toHaveBeenCalledOnce()
     })
 })
