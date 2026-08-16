@@ -2,12 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, type PDFFont, type PDFImage, type PDFPage, rgb } from 'pdf-lib'
-
-import {
-    ASSESSMENT_SECTIONS,
-    type AssessmentAnswer,
-    type AssessmentSection,
-} from '../shared/assessment.js'
+import type { AssessmentAnswer, AssessmentSection } from '../shared/assessment.js'
+import { ASSESSMENT_FORM_2026_08_10 } from '../shared/assessment-form-2026-08-10.js'
 
 export type AssessmentExportResponse = {
     criterionKey: string
@@ -22,7 +18,7 @@ export type AssessmentExportPhoto = {
     data: Buffer
 }
 
-export type AssessmentExportRecord = {
+export type AssessmentExportMetadata = {
     id: string
     formVersion: string
     institution: string
@@ -39,8 +35,18 @@ export type AssessmentExportRecord = {
     createdAt: Date
     createdBy: string
     responses: AssessmentExportResponse[]
+}
+
+export type AssessmentCsvRecord = AssessmentExportMetadata & {
+    photoCount: number
+}
+
+export type AssessmentPdfRecord = AssessmentExportMetadata & {
     photos: AssessmentExportPhoto[]
 }
+
+/** Backward-compatible name for callers created before CSV and PDF records were separated. */
+export type AssessmentExportRecord = AssessmentPdfRecord
 
 type ExportCriterion = {
     sectionKey: string
@@ -52,44 +58,20 @@ type ExportCriterion = {
     unknown: boolean
 }
 
-function snapshotSections(sections: readonly AssessmentSection[]): readonly AssessmentSection[] {
-    return Object.freeze(
-        sections.map((section) =>
-            Object.freeze({
-                ...section,
-                criteria: Object.freeze(
-                    section.criteria.map((criterion) =>
-                        Object.freeze({
-                            ...criterion,
-                            quantityFields: criterion.quantityFields
-                                ? Object.freeze(
-                                      criterion.quantityFields.map((field) =>
-                                          Object.freeze({ ...field }),
-                                      ),
-                                  )
-                                : undefined,
-                        }),
-                    ),
-                ),
-            }),
-        ),
-    )
-}
-
-const FORM_2026_08_10 = snapshotSections(ASSESSMENT_SECTIONS)
-
 /** Immutable export definitions. Add a new snapshot when a form version changes. */
 export const ASSESSMENT_EXPORT_FORM_DEFINITIONS: Readonly<
     Record<string, readonly AssessmentSection[]>
 > = Object.freeze({
-    '2026-08-10': FORM_2026_08_10,
+    '2026-08-10': ASSESSMENT_FORM_2026_08_10,
 })
 
 function formSections(formVersion: string): readonly AssessmentSection[] {
-    return ASSESSMENT_EXPORT_FORM_DEFINITIONS[formVersion] ?? FORM_2026_08_10
+    return ASSESSMENT_EXPORT_FORM_DEFINITIONS[formVersion] ?? ASSESSMENT_FORM_2026_08_10
 }
 
-function exportCriteria(record: AssessmentExportRecord): ExportCriterion[] {
+function exportCriteria(
+    record: Pick<AssessmentExportMetadata, 'formVersion' | 'responses'>,
+): ExportCriterion[] {
     const responsesByKey = new Map(
         record.responses.map((response) => [response.criterionKey, response]),
     )
@@ -165,8 +147,23 @@ function neutralizeFormula(value: string): string {
     return firstMeaningful && '=+-@'.includes(firstMeaningful) ? `'${value}` : value
 }
 
+function normalizeCsvControls(value: string): string {
+    let normalized = ''
+    for (const character of value) {
+        const codePoint = character.codePointAt(0) ?? 0
+        if (character === '\r' || character === '\n') {
+            normalized += character
+        } else if (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)) {
+            normalized += ' '
+        } else {
+            normalized += character
+        }
+    }
+    return normalized
+}
+
 function csvCell(value: string | number): string {
-    const safe = neutralizeFormula(String(value))
+    const safe = normalizeCsvControls(neutralizeFormula(String(value)))
     return /[",\r\n]/u.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
@@ -184,7 +181,7 @@ const ANSWER_LABELS: Readonly<Record<AssessmentAnswer, string>> = {
     not_observable: 'No observable',
 }
 
-export function createAssessmentCsvChunk(record: AssessmentExportRecord): string {
+export function createAssessmentCsvChunk(record: AssessmentCsvRecord): string {
     const metadata = [
         record.id,
         record.formVersion,
@@ -219,7 +216,7 @@ export function createAssessmentCsvChunk(record: AssessmentExportRecord): string
                 criterion.response?.comments ?? '',
                 quantityLabels.join(' | '),
                 quantityValues.join(' | '),
-                record.photos.length,
+                record.photoCount,
             ])
         })
         .join('')
@@ -259,34 +256,43 @@ function supportedText(value: unknown, supported: ReadonlySet<number>): string {
 function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
     const paragraphs = text.split('\n')
     const lines: string[] = []
+    const spaceWidth = font.widthOfTextAtSize(' ', fontSize)
     for (const paragraph of paragraphs) {
         if (!paragraph) {
             lines.push('')
             continue
         }
         let line = ''
+        let lineWidth = 0
         for (const word of paragraph.split(/\s+/u)) {
-            const candidate = line ? `${line} ${word}` : word
-            if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
-                line = candidate
+            const wordWidth = font.widthOfTextAtSize(word, fontSize)
+            const candidateWidth = lineWidth + (line ? spaceWidth : 0) + wordWidth
+            if (candidateWidth <= maxWidth) {
+                line = line ? `${line} ${word}` : word
+                lineWidth = candidateWidth
                 continue
             }
             if (line) lines.push(line)
-            if (font.widthOfTextAtSize(word, fontSize) <= maxWidth) {
+            if (wordWidth <= maxWidth) {
                 line = word
+                lineWidth = wordWidth
                 continue
             }
             let fragment = ''
+            let fragmentWidth = 0
             for (const character of word) {
-                const next = `${fragment}${character}`
-                if (font.widthOfTextAtSize(next, fontSize) > maxWidth && fragment) {
+                const characterWidth = font.widthOfTextAtSize(character, fontSize)
+                if (fragmentWidth + characterWidth > maxWidth && fragment) {
                     lines.push(fragment)
                     fragment = character
+                    fragmentWidth = characterWidth
                 } else {
-                    fragment = next
+                    fragment += character
+                    fragmentWidth += characterWidth
                 }
             }
             line = fragment
+            lineWidth = fragmentWidth
         }
         lines.push(line)
     }
@@ -361,16 +367,21 @@ function drawWrapped(
     const width = options.width ?? CONTENT_WIDTH
     const lines = wrapText(supportedText(value, supported), font, size, width)
     const height = lines.length * lineHeight
-    for (const line of lines) {
+    let lineIndex = 0
+    while (lineIndex < lines.length) {
         ensureSpace(context, lineHeight)
-        context.page.drawText(line, {
+        const linesAvailable = Math.max(1, Math.floor((context.y - 48) / lineHeight))
+        const pageLines = lines.slice(lineIndex, lineIndex + linesAvailable)
+        context.page.drawText(pageLines.join('\n'), {
             x,
             y: context.y - size,
             size,
             font,
             color: options.color ?? INK,
+            lineHeight,
         })
-        context.y -= lineHeight
+        context.y -= pageLines.length * lineHeight
+        lineIndex += pageLines.length
     }
     context.y -= options.gapAfter ?? 0
     return height
@@ -502,11 +513,17 @@ async function drawPhoto(
     context: PdfContext,
     photo: AssessmentExportPhoto,
     index: number,
+    preparedImage?: PDFImage | null,
 ): Promise<void> {
-    let image: PDFImage
-    try {
-        image = await context.document.embedJpg(photo.data)
-    } catch {
+    let image = preparedImage
+    if (image === undefined) {
+        try {
+            image = await context.document.embedJpg(photo.data)
+        } catch {
+            image = null
+        }
+    }
+    if (!image) {
         drawWrapped(context, `Foto ${index}: archivo JPEG no válido`, { color: RED, gapAfter: 8 })
         return
     }
@@ -553,7 +570,7 @@ function addPageNumbers(context: PdfContext): void {
     }
 }
 
-export async function createAssessmentPdf(record: AssessmentExportRecord): Promise<Uint8Array> {
+export async function createAssessmentPdf(record: AssessmentPdfRecord): Promise<Uint8Array> {
     const document = await PDFDocument.create()
     document.registerFontkit(fontkit)
     const [regularBytes, boldBytes] = await Promise.all([loadFontBytes(400), loadFontBytes(700)])
@@ -646,9 +663,23 @@ export async function createAssessmentPdf(record: AssessmentExportRecord): Promi
     }
 
     if (record.photos.length) {
-        drawSectionTitle(context, 'Registro fotográfico')
         const photos = [...record.photos].sort((left, right) => left.position - right.position)
-        for (const [index, photo] of photos.entries()) await drawPhoto(context, photo, index + 1)
+        let firstImage: PDFImage | null
+        try {
+            firstImage = await context.document.embedJpg(photos[0].data)
+        } catch {
+            firstImage = null
+        }
+        const firstImageHeight = firstImage
+            ? firstImage.height *
+              Math.min(CONTENT_WIDTH / firstImage.width, 560 / firstImage.height, 1)
+            : 18
+        ensureSpace(context, 42 + firstImageHeight + 38)
+        drawSectionTitle(context, 'Registro fotográfico')
+        await drawPhoto(context, photos[0], 1, firstImage)
+        for (const [index, photo] of photos.slice(1).entries()) {
+            await drawPhoto(context, photo, index + 2)
+        }
     }
 
     addPageNumbers(context)
