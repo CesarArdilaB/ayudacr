@@ -118,6 +118,7 @@ export const shelterAssessments = pgTable(
     (table) => [
         index('shelter_assessments_created_by_idx').on(table.createdByUserId),
         index('shelter_assessments_visit_date_idx').on(table.visitDate),
+        index('shelter_assessments_created_at_id_idx').on(table.createdAt.desc(), table.id.desc()),
     ],
 )
 

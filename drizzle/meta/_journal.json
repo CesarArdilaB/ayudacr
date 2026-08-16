@@ -36,6 +36,13 @@
             "when": 1786917045295,
             "tag": "0004_sticky_micromax",
             "breakpoints": true
+        },
+        {
+            "idx": 5,
+            "version": "7",
+            "when": 1786923610694,
+            "tag": "0005_tense_may_parker",
+            "breakpoints": true
         }
     ]
 }

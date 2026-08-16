@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingHttpHeaders } from 'node:http'
 import { hashPassword } from 'better-auth/crypto'
 import { fromNodeHeaders } from 'better-auth/node'
-import { and, asc, count, desc, eq, inArray, lt, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { type Response, Router } from 'express'
 import {
     type AssessmentCsvRecord,
@@ -113,7 +113,7 @@ export function createDrizzleAdminAssessmentRepository(
         },
         async *streamCsvBatches() {
             const batchSize = 100
-            let cursor: { createdAt: Date; id: string } | undefined
+            let cursor: { createdAt: string; id: string } | undefined
             while (true) {
                 const records = await database
                     .select({
@@ -131,6 +131,7 @@ export function createDrizzleAdminAssessmentRepository(
                         generalObservations: shelterAssessments.generalObservations,
                         visitors: shelterAssessments.visitors,
                         createdAt: shelterAssessments.createdAt,
+                        createdAtCursor: sql<string>`${shelterAssessments.createdAt}::text`,
                         creatorName: user.name,
                         creatorEmail: user.email,
                     })
@@ -139,9 +140,15 @@ export function createDrizzleAdminAssessmentRepository(
                     .where(
                         cursor
                             ? or(
-                                  lt(shelterAssessments.createdAt, cursor.createdAt),
+                                  lt(
+                                      shelterAssessments.createdAt,
+                                      sql<Date>`${cursor.createdAt}::timestamptz`,
+                                  ),
                                   and(
-                                      eq(shelterAssessments.createdAt, cursor.createdAt),
+                                      eq(
+                                          shelterAssessments.createdAt,
+                                          sql<Date>`${cursor.createdAt}::timestamptz`,
+                                      ),
                                       lt(shelterAssessments.id, cursor.id),
                                   ),
                               )
@@ -213,7 +220,7 @@ export function createDrizzleAdminAssessmentRepository(
                 }
                 const last = records.at(-1)
                 if (!last || records.length < batchSize) return
-                cursor = { createdAt: last.createdAt, id: last.id }
+                cursor = { createdAt: last.createdAtCursor, id: last.id }
             }
         },
         async findDetailed(id) {
@@ -404,7 +411,7 @@ function setCsvHeaders(response: Response): void {
 }
 
 async function writeWithBackpressure(response: Response, chunk: string): Promise<void> {
-    if (response.destroyed || response.writableEnded) throw new Error('Response closed')
+    ensureResponseOpen(response)
     if (response.write(chunk)) return
     await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
@@ -424,6 +431,10 @@ async function writeWithBackpressure(response: Response, chunk: string): Promise
     })
 }
 
+function ensureResponseOpen(response: Response): void {
+    if (response.destroyed || response.writableEnded) throw new Error('Response closed')
+}
+
 export async function streamAssessmentCsv(
     response: Response,
     records: AsyncIterable<AssessmentCsvRecord>,
@@ -431,12 +442,14 @@ export async function streamAssessmentCsv(
     const iterator = records[Symbol.asyncIterator]()
     try {
         const first = await iterator.next()
+        ensureResponseOpen(response)
         setCsvHeaders(response)
         await writeWithBackpressure(response, createAssessmentCsvHeader())
         if (!first.done) {
             await writeWithBackpressure(response, createAssessmentCsvChunk(first.value))
             while (true) {
                 const next = await iterator.next()
+                ensureResponseOpen(response)
                 if (next.done) break
                 await writeWithBackpressure(response, createAssessmentCsvChunk(next.value))
             }

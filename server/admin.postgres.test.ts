@@ -26,6 +26,19 @@ describe('admin assessment export repository with PostgreSQL', () => {
         await client.close()
     })
 
+    it('migrates the descending compound index used by the export cursor', async () => {
+        const result = await client.query<{ indexdef: string }>(
+            `SELECT indexdef FROM pg_indexes
+             WHERE schemaname = 'public'
+               AND indexname = 'shelter_assessments_created_at_id_idx'`,
+        )
+
+        expect(result.rows).toHaveLength(1)
+        expect(result.rows[0].indexdef).toMatch(
+            /\(created_at DESC NULLS LAST, id DESC NULLS LAST\)$/,
+        )
+    })
+
     it('paginates equal timestamps by descending UUID without skips or duplicates', async () => {
         const createdAt = new Date('2026-08-16T12:00:00.000Z')
         const ids = Array.from(
@@ -44,6 +57,33 @@ describe('admin assessment export repository with PostgreSQL', () => {
                 createdAt,
             })),
         )
+        const repository = createDrizzleAdminAssessmentRepository(
+            database as unknown as Parameters<typeof createDrizzleAdminAssessmentRepository>[0],
+        )
+
+        const exported = []
+        for await (const record of repository.streamCsvBatches()) exported.push(record)
+
+        expect(exported.map((record) => record.id)).toEqual([...ids].reverse())
+        expect(new Set(exported.map((record) => record.id)).size).toBe(ids.length)
+    })
+
+    it('preserves PostgreSQL microseconds in the cursor within one JavaScript millisecond', async () => {
+        const ids = Array.from(
+            { length: 102 },
+            (_, index) => `10000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+        )
+        for (const [index, id] of ids.entries()) {
+            const microseconds = String(index + 1).padStart(6, '0')
+            await client.query(
+                `INSERT INTO shelter_assessments
+                    (id, institution, visit_date, municipality, department, contact_name,
+                     created_by_user_id, created_at)
+                 VALUES ($1, $2, '2026-08-16', 'CALI', 'VALLE DEL CAUCA', 'Contacto',
+                         'export-user', $3)`,
+                [id, `Microsegundo ${index + 1}`, `2026-08-16 12:00:00.${microseconds}+00`],
+            )
+        }
         const repository = createDrizzleAdminAssessmentRepository(
             database as unknown as Parameters<typeof createDrizzleAdminAssessmentRepository>[0],
         )

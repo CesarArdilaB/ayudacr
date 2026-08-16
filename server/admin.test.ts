@@ -518,6 +518,36 @@ describe('super admin API', () => {
             await expect(streaming).rejects.toThrow('Response closed')
             expect(response.end).not.toHaveBeenCalled()
         })
+
+        it('stops before committing headers when the client closes during iterator.next', async () => {
+            let releaseRecord: (() => void) | undefined
+            const recordReady = new Promise<void>((resolve) => {
+                releaseRecord = resolve
+            })
+            const response = Object.assign(new EventEmitter(), {
+                write: vi.fn().mockReturnValue(true),
+                end: vi.fn(),
+                setHeader: vi.fn(),
+                destroyed: false,
+                writableEnded: false,
+            })
+            const streaming = streamAssessmentCsv(
+                response as never,
+                (async function* () {
+                    await recordReady
+                    yield { ...exportRecord(), photoCount: 0 } satisfies AssessmentCsvRecord
+                })(),
+            )
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            response.destroyed = true
+            response.emit('close')
+            releaseRecord?.()
+
+            await expect(streaming).rejects.toThrow('Response closed')
+            expect(response.setHeader).not.toHaveBeenCalled()
+            expect(response.write).not.toHaveBeenCalled()
+        })
     })
 
     describe('assessment PDF export', () => {

@@ -1,0 +1,1 @@
+CREATE INDEX "shelter_assessments_created_at_id_idx" ON "shelter_assessments" USING btree ("created_at" DESC NULLS LAST,"id" DESC NULLS LAST);
