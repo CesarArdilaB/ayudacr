@@ -1,13 +1,33 @@
 import { useEffect, useState } from 'react'
-import type { AdminAssessment } from '../lib/admin-api.js'
+import {
+    type AdminAssessment,
+    downloadAdminAssessmentPdf,
+    downloadAdminAssessmentsCsv,
+} from '../lib/admin-api.js'
+
+function messageFrom(error: unknown): string {
+    return error instanceof Error
+        ? error.message
+        : 'No fue posible descargar el archivo. Intentá nuevamente.'
+}
 
 export function AdminRecords({
     loadRecords,
+    downloadPdf = downloadAdminAssessmentPdf,
+    downloadCsv = downloadAdminAssessmentsCsv,
 }: {
     loadRecords: () => Promise<{ records: AdminAssessment[] }>
+    downloadPdf?: (assessmentId: string) => Promise<void>
+    downloadCsv?: () => Promise<void>
 }) {
     const [records, setRecords] = useState<AdminAssessment[]>([])
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+    const [pendingPdfIds, setPendingPdfIds] = useState<Set<string>>(() => new Set())
+    const [csvPending, setCsvPending] = useState(false)
+    const [downloadNotice, setDownloadNotice] = useState<{
+        kind: 'success' | 'error'
+        message: string
+    } | null>(null)
 
     useEffect(() => {
         let active = true
@@ -26,6 +46,41 @@ export function AdminRecords({
         }
     }, [loadRecords])
 
+    async function handlePdfDownload(record: AdminAssessment) {
+        if (pendingPdfIds.has(record.id)) return
+        setPendingPdfIds((current) => new Set(current).add(record.id))
+        setDownloadNotice(null)
+        try {
+            await downloadPdf(record.id)
+            setDownloadNotice({
+                kind: 'success',
+                message: `PDF de ${record.institution} descargado.`,
+            })
+        } catch (error) {
+            setDownloadNotice({ kind: 'error', message: messageFrom(error) })
+        } finally {
+            setPendingPdfIds((current) => {
+                const next = new Set(current)
+                next.delete(record.id)
+                return next
+            })
+        }
+    }
+
+    async function handleCsvDownload() {
+        if (csvPending || status !== 'ready') return
+        setCsvPending(true)
+        setDownloadNotice(null)
+        try {
+            await downloadCsv()
+            setDownloadNotice({ kind: 'success', message: 'Descarga CSV iniciada.' })
+        } catch (error) {
+            setDownloadNotice({ kind: 'error', message: messageFrom(error) })
+        } finally {
+            setCsvPending(false)
+        }
+    }
+
     return (
         <section className="admin-surface" aria-labelledby="records-title">
             <header className="admin-title-row">
@@ -34,11 +89,30 @@ export function AdminRecords({
                     <h1 id="records-title">Registros capturados</h1>
                     <p>Visitas guardadas por los equipos de evaluación en terreno.</p>
                 </div>
-                <div className="record-total">
-                    <strong>{records.length}</strong>
-                    <span>registros</span>
+                <div className="records-summary-actions">
+                    <div className="record-total">
+                        <strong>{records.length}</strong>
+                        <span>registros</span>
+                    </div>
+                    <button
+                        className="records-download-all"
+                        type="button"
+                        disabled={status !== 'ready' || csvPending}
+                        onClick={() => void handleCsvDownload()}
+                    >
+                        {csvPending ? 'Preparando CSV…' : 'Descargar todos en CSV'}
+                    </button>
                 </div>
             </header>
+
+            {downloadNotice && (
+                <p
+                    className={downloadNotice.kind === 'error' ? 'server-error' : 'download-status'}
+                    role={downloadNotice.kind === 'error' ? 'alert' : 'status'}
+                >
+                    {downloadNotice.message}
+                </p>
+            )}
 
             {status === 'loading' && <p role="status">Cargando registros…</p>}
             {status === 'error' && (
@@ -63,6 +137,7 @@ export function AdminRecords({
                                 <th>Visita</th>
                                 <th>Evaluador</th>
                                 <th>Respuestas</th>
+                                <th>Descarga</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -85,6 +160,19 @@ export function AdminRecords({
                                         <span className="completion-pill">
                                             {record.responseCount} / 44
                                         </span>
+                                    </td>
+                                    <td data-label="Descarga">
+                                        <button
+                                            className="record-download-button"
+                                            type="button"
+                                            disabled={pendingPdfIds.has(record.id)}
+                                            aria-label={`Descargar PDF de ${record.institution}`}
+                                            onClick={() => void handlePdfDownload(record)}
+                                        >
+                                            {pendingPdfIds.has(record.id)
+                                                ? 'Descargando…'
+                                                : 'Descargar PDF'}
+                                        </button>
                                     </td>
                                 </tr>
                             ))}

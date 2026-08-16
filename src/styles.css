@@ -1435,6 +1435,58 @@ input[aria-invalid="true"] {
     text-transform: uppercase;
 }
 
+.records-summary-actions {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 13rem;
+}
+
+.records-download-all,
+.record-download-button {
+    min-height: 2.75rem;
+    border: 1px solid var(--ink);
+    padding: 0.7rem 1rem;
+    color: white;
+    background: var(--forest);
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+.records-download-all:hover:not(:disabled),
+.record-download-button:hover:not(:disabled) {
+    background: #002b73;
+}
+
+.records-download-all:focus-visible,
+.record-download-button:focus-visible {
+    outline: 3px solid var(--sun);
+    outline-offset: 2px;
+}
+
+.records-download-all:disabled,
+.record-download-button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
+.record-download-button {
+    width: 100%;
+    min-width: 8.5rem;
+}
+
+.download-status {
+    border-left: 5px solid var(--forest);
+    margin: -1.5rem 0 1.5rem;
+    padding: 0.8rem 1rem;
+    color: var(--ink);
+    background: rgba(20, 96, 74, 0.1);
+    font-weight: 750;
+}
+
 .records-table-wrap {
     overflow-x: auto;
     border: 1px solid var(--ink);
@@ -1848,6 +1900,15 @@ input[aria-invalid="true"] {
         justify-content: space-between;
     }
 
+    .records-summary-actions {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .records-download-all {
+        width: 100%;
+    }
+
     .records-table-wrap {
         overflow: visible;
         border: 0;
@@ -1875,10 +1936,14 @@ input[aria-invalid="true"] {
 
     .records-table td {
         display: grid;
-        grid-template-columns: 6.2rem 1fr;
+        grid-template-columns: 6.2rem minmax(0, 1fr);
         gap: 0.8rem;
         border-bottom: 1px solid rgba(0, 56, 147, 0.12);
         padding: 0.85rem 1rem;
+    }
+
+    .record-download-button {
+        min-width: 0;
     }
 
     .records-table td::before {

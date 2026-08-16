@@ -39,6 +39,99 @@ export async function listAdminAssessments(): Promise<{ records: AdminAssessment
     )
 }
 
+const DOWNLOAD_ERROR_BY_STATUS: Partial<Record<number, string>> = {
+    401: 'Tu sesión expiró. Ingresá nuevamente.',
+    403: 'No tenés permisos para descargar este archivo.',
+    404: 'No se encontró el registro solicitado.',
+}
+
+function downloadError(response: Response): Error {
+    return new Error(
+        DOWNLOAD_ERROR_BY_STATUS[response.status] ||
+            'No fue posible descargar el archivo. Intentá nuevamente.',
+    )
+}
+
+function fallbackPdfFilename(assessmentId: string): string {
+    const safeId = assessmentId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 80) || 'registro'
+    return `evaluacion-${safeId}.pdf`
+}
+
+function filenameFromDisposition(value: string | null, fallback: string): string {
+    if (!value) return fallback
+
+    const encoded = value.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1]
+    const quoted = value.match(/filename\s*=\s*"([^"]+)"/i)?.[1]
+    const plain = value.match(/filename\s*=\s*([^;\s]+)/i)?.[1]
+    const candidate = encoded ? decodeFilename(encoded) : quoted || plain
+
+    if (
+        !candidate ||
+        candidate.length > 180 ||
+        candidate.includes('..') ||
+        hasUnsafeFilenameCharacters(candidate) ||
+        !candidate.toLowerCase().endsWith('.pdf')
+    ) {
+        return fallback
+    }
+    return candidate
+}
+
+function hasUnsafeFilenameCharacters(value: string): boolean {
+    return [...value].some((character) => {
+        const code = character.charCodeAt(0)
+        return character === '/' || character === '\\' || code < 32 || code === 127
+    })
+}
+
+function decodeFilename(value: string): string | undefined {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return undefined
+    }
+}
+
+export async function downloadAdminAssessmentPdf(assessmentId: string): Promise<void> {
+    const response = await fetch(`/api/admin/assessments/${encodeURIComponent(assessmentId)}.pdf`, {
+        credentials: 'include',
+        headers: { accept: 'application/pdf' },
+    })
+    if (!response.ok) throw downloadError(response)
+
+    const objectUrl = URL.createObjectURL(await response.blob())
+    const anchor = document.createElement('a')
+    anchor.href = objectUrl
+    anchor.download = filenameFromDisposition(
+        response.headers.get('content-disposition'),
+        fallbackPdfFilename(assessmentId),
+    )
+    anchor.hidden = true
+    document.body.append(anchor)
+    try {
+        anchor.click()
+    } finally {
+        anchor.remove()
+        URL.revokeObjectURL(objectUrl)
+    }
+}
+
+export async function downloadAdminAssessmentsCsv(): Promise<void> {
+    const response = await fetch('/api/admin/assessments.csv', {
+        method: 'HEAD',
+        credentials: 'include',
+    })
+    if (!response.ok) throw downloadError(response)
+
+    const frame = document.createElement('iframe')
+    frame.src = '/api/admin/assessments.csv'
+    frame.title = 'Descarga de evaluaciones en CSV'
+    frame.setAttribute('aria-hidden', 'true')
+    frame.hidden = true
+    document.body.append(frame)
+    window.setTimeout(() => frame.remove(), 60_000)
+}
+
 export async function listAdminUsers(): Promise<{ users: AdminUser[] }> {
     return parseResponse(
         await fetch('/api/admin/users', {
