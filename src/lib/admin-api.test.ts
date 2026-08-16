@@ -125,7 +125,7 @@ describe('admin assessment downloads', () => {
     it('downloads an assessment PDF with credentials and a safe server filename', async () => {
         vi.useFakeTimers()
         const fetcher = vi.fn().mockResolvedValue(
-            new Response(new Blob(['pdf']), {
+            new Response('pdf', {
                 headers: {
                     'content-disposition':
                         "attachment; filename*=UTF-8''evaluaci%C3%B3n-coliseo.pdf",
@@ -157,7 +157,10 @@ describe('admin assessment downloads', () => {
             credentials: 'include',
             headers: { accept: 'application/pdf' },
         })
-        expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob))
+        expect(createObjectUrl).toHaveBeenCalledOnce()
+        const downloadedBlob = createObjectUrl.mock.calls[0][0] as Blob
+        expect(downloadedBlob.type).toBe('application/pdf')
+        expect(downloadedBlob.size).toBe(3)
         expect(click).toHaveBeenCalledOnce()
         expect(clickedAnchor?.download).toBe('evaluación-coliseo.pdf')
         expect(revokeObjectUrl).not.toHaveBeenCalled()
