@@ -152,6 +152,9 @@ const CSV_HEADERS = [
 ] as const
 
 function neutralizeFormula(value: string): string {
+    if (value.startsWith('\t') || value.startsWith('\r') || value.startsWith('\n')) {
+        return `'${value}`
+    }
     const firstMeaningful = [...value].find((character) => {
         const codePoint = character.codePointAt(0) ?? 0
         return (
@@ -358,8 +361,8 @@ function drawWrapped(
     const width = options.width ?? CONTENT_WIDTH
     const lines = wrapText(supportedText(value, supported), font, size, width)
     const height = lines.length * lineHeight
-    ensureSpace(context, height + (options.gapAfter ?? 0))
     for (const line of lines) {
+        ensureSpace(context, lineHeight)
         context.page.drawText(line, {
             x,
             y: context.y - size,
