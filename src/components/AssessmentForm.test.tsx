@@ -13,6 +13,14 @@ async function completeAssessment(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('Persona de contacto'), 'Ana Torres')
     await user.click(screen.getByRole('button', { name: 'Comenzar evaluación' }))
 
+    await user.type(screen.getByLabelText('Cantidad de mujeres gestantes o lactantes'), '3')
+    await user.type(screen.getByLabelText('Cantidad de personas mayores'), '7')
+    await user.type(screen.getByLabelText('Cantidad de personas con discapacidad'), '2')
+    await user.type(screen.getByLabelText('Cantidad de niñas, niños y adolescentes'), '12')
+    await user.type(screen.getByLabelText('Cantidad de personas de grupos étnicos'), '4')
+    await user.type(screen.getByLabelText('Cantidad de hombres'), '18')
+    await user.type(screen.getByLabelText('Cantidad de mujeres'), '22')
+
     const sectionHeadings = [
         'Dignidad y grupos con necesidades específicas de protección',
         'Acceso',
@@ -129,7 +137,15 @@ describe('AssessmentForm', () => {
             municipality: 'CALI',
             department: 'VALLE DEL CAUCA',
             responses: expect.arrayContaining([
-                expect.objectContaining({ criterionKey: 'dignity_pregnant', answer: 'yes' }),
+                expect.objectContaining({
+                    criterionKey: 'dignity_pregnant',
+                    answer: 'yes',
+                    quantities: { people: 3 },
+                }),
+                expect.objectContaining({
+                    criterionKey: 'dignity_population_total',
+                    quantities: { men: 18, women: 22 },
+                }),
             ]),
         })
         expect(captured?.responses).toHaveLength(44)

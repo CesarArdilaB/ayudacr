@@ -32,6 +32,7 @@ function completeAssessment(): AssessmentSubmission {
             criterionKey: criterion.key,
             answer: 'yes',
             comments: '',
+            quantities: {},
         })),
     }
 }

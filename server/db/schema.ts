@@ -124,6 +124,10 @@ export const assessmentResponses = pgTable(
         criterionKey: text('criterion_key').notNull(),
         answer: assessmentAnswer('answer').notNull(),
         comments: text('comments').notNull().default(''),
+        quantities: jsonb('quantities')
+            .$type<Record<string, number>>()
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
         updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     },

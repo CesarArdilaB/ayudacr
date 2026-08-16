@@ -4,6 +4,10 @@ export type AssessmentAnswer = (typeof ASSESSMENT_ANSWERS)[number]
 export type AssessmentCriterion = {
     key: string
     label: string
+    quantityFields?: readonly {
+        key: string
+        label: string
+    }[]
 }
 
 export type AssessmentSection = {
@@ -22,26 +26,41 @@ export const ASSESSMENT_SECTIONS: readonly AssessmentSection[] = [
             {
                 key: 'dignity_pregnant',
                 label: 'Mujeres embarazadas, gestantes o lactantes. ¿Cuántas? ¿Cuentan con espacios adecuados o prioridad?',
+                quantityFields: [
+                    { key: 'people', label: 'Cantidad de mujeres gestantes o lactantes' },
+                ],
             },
             {
                 key: 'dignity_older_people',
                 label: 'Personas mayores. ¿Cuántas? ¿Están ubicadas en zonas de fácil acceso?',
+                quantityFields: [{ key: 'people', label: 'Cantidad de personas mayores' }],
             },
             {
                 key: 'dignity_disability',
                 label: 'Personas con discapacidad. ¿Cuántas? ¿Están ubicadas en zonas de fácil acceso?',
+                quantityFields: [{ key: 'people', label: 'Cantidad de personas con discapacidad' }],
             },
             {
                 key: 'dignity_children',
                 label: 'Niños, niñas y adolescentes. ¿Cuántos? ¿Están con sus familiares o se encuentran solos o desatendidos?',
+                quantityFields: [
+                    { key: 'people', label: 'Cantidad de niñas, niños y adolescentes' },
+                ],
             },
             {
                 key: 'dignity_ethnic_groups',
                 label: 'Personas de grupos étnicos alojadas. ¿Cuáles? ¿Cómo? ¿Cuántas personas?',
+                quantityFields: [
+                    { key: 'people', label: 'Cantidad de personas de grupos étnicos' },
+                ],
             },
             {
                 key: 'dignity_population_total',
                 label: 'Total de hombres y mujeres albergados.',
+                quantityFields: [
+                    { key: 'men', label: 'Cantidad de hombres' },
+                    { key: 'women', label: 'Cantidad de mujeres' },
+                ],
             },
             {
                 key: 'dignity_respect_residents',
@@ -102,7 +121,7 @@ export const ASSESSMENT_SECTIONS: readonly AssessmentSection[] = [
         criteria: [
             {
                 key: 'participation_feedback_channels',
-                label: 'Información visible sobre canales para peticiones, quejas, reclamos, solicitudes y felicitaciones.',
+                label: 'Información visible sobre canales para peticiones, quejas, reclamos, sugerencias y felicitaciones.',
             },
             {
                 key: 'participation_child_friendly_spaces',
@@ -229,6 +248,7 @@ export type AssessmentResponseInput = {
     criterionKey: string
     answer: AssessmentAnswer
     comments: string
+    quantities: Record<string, number>
 }
 
 export type AssessmentSubmission = {
@@ -299,14 +319,17 @@ export function parseAssessmentSubmission(input: unknown): AssessmentParseResult
     }
 
     const submittedResponses = Array.isArray(input.responses) ? input.responses : []
-    const knownKeys = new Set(ASSESSMENT_CRITERIA.map((criterion) => criterion.key))
+    const criterionByKey = new Map(
+        ASSESSMENT_CRITERIA.map((criterion) => [criterion.key, criterion] as const),
+    )
     const responseByKey = new Map<string, AssessmentResponseInput>()
 
     for (const response of submittedResponses) {
         if (!isRecord(response)) continue
         const criterionKey = cleanString(response.criterionKey)
 
-        if (!knownKeys.has(criterionKey)) {
+        const criterion = criterionByKey.get(criterionKey)
+        if (!criterion) {
             errors.push(`Unknown criterion: ${criterionKey || '(empty)'}`)
             continue
         }
@@ -318,10 +341,31 @@ export function parseAssessmentSubmission(input: unknown): AssessmentParseResult
         const answer = cleanString(response.answer)
         if (!ASSESSMENT_ANSWERS.includes(answer as AssessmentAnswer)) continue
 
+        const quantities: Record<string, number> = {}
+        const submittedQuantities = isRecord(response.quantities) ? response.quantities : {}
+        const allowedQuantityKeys = new Set(
+            criterion.quantityFields?.map((field) => field.key) ?? [],
+        )
+
+        for (const [quantityKey, quantity] of Object.entries(submittedQuantities)) {
+            if (!allowedQuantityKeys.has(quantityKey)) {
+                errors.push(`Unknown quantity ${quantityKey} for ${criterionKey}`)
+                continue
+            }
+            if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity < 0) {
+                errors.push(
+                    `Quantity ${quantityKey} for ${criterionKey} must be a non-negative integer`,
+                )
+                continue
+            }
+            quantities[quantityKey] = quantity
+        }
+
         responseByKey.set(criterionKey, {
             criterionKey,
             answer: answer as AssessmentAnswer,
             comments: cleanString(response.comments),
+            quantities,
         })
     }
 

@@ -19,6 +19,7 @@ type ResponseState = Record<
     {
         answer?: AssessmentAnswer
         comments: string
+        quantities: Record<string, string>
     }
 >
 
@@ -153,7 +154,11 @@ export function AssessmentForm({
     function updateAnswer(criterionKey: string, answer: AssessmentAnswer) {
         setResponses((current) => ({
             ...current,
-            [criterionKey]: { answer, comments: current[criterionKey]?.comments ?? '' },
+            [criterionKey]: {
+                answer,
+                comments: current[criterionKey]?.comments ?? '',
+                quantities: current[criterionKey]?.quantities ?? {},
+            },
         }))
         setMessage(undefined)
         setIsSaved(false)
@@ -162,8 +167,30 @@ export function AssessmentForm({
     function updateComments(criterionKey: string, comments: string) {
         setResponses((current) => ({
             ...current,
-            [criterionKey]: { answer: current[criterionKey]?.answer, comments },
+            [criterionKey]: {
+                answer: current[criterionKey]?.answer,
+                comments,
+                quantities: current[criterionKey]?.quantities ?? {},
+            },
         }))
+        setIsSaved(false)
+    }
+
+    function updateQuantity(criterionKey: string, quantityKey: string, value: string) {
+        if (value !== '' && !/^\d+$/.test(value)) return
+
+        setResponses((current) => ({
+            ...current,
+            [criterionKey]: {
+                answer: current[criterionKey]?.answer,
+                comments: current[criterionKey]?.comments ?? '',
+                quantities: {
+                    ...(current[criterionKey]?.quantities ?? {}),
+                    [quantityKey]: value,
+                },
+            },
+        }))
+        setMessage(undefined)
         setIsSaved(false)
     }
 
@@ -236,6 +263,11 @@ export function AssessmentForm({
                 criterionKey: criterion.key,
                 answer: responses[criterion.key]?.answer as AssessmentAnswer,
                 comments: responses[criterion.key]?.comments ?? '',
+                quantities: Object.fromEntries(
+                    Object.entries(responses[criterion.key]?.quantities ?? {})
+                        .filter(([, value]) => value !== '')
+                        .map(([key, value]) => [key, Number(value)]),
+                ),
             })),
         }
     }
@@ -459,6 +491,38 @@ export function AssessmentForm({
                                                 ))}
                                             </div>
                                         </fieldset>
+                                        {criterion.quantityFields && (
+                                            <fieldset className="criterion-quantities">
+                                                <legend>Cantidades registradas</legend>
+                                                <div className="quantity-fields">
+                                                    {criterion.quantityFields.map((field) => (
+                                                        <label key={field.key}>
+                                                            <span>{field.label}</span>
+                                                            <input
+                                                                aria-label={field.label}
+                                                                type="number"
+                                                                inputMode="numeric"
+                                                                min="0"
+                                                                step="1"
+                                                                value={
+                                                                    responses[criterion.key]
+                                                                        ?.quantities[field.key] ??
+                                                                    ''
+                                                                }
+                                                                onChange={(event) =>
+                                                                    updateQuantity(
+                                                                        criterion.key,
+                                                                        field.key,
+                                                                        event.target.value,
+                                                                    )
+                                                                }
+                                                                placeholder="0"
+                                                            />
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </fieldset>
+                                        )}
                                         <label className="criterion-comment">
                                             <span>Comentarios / observaciones</span>
                                             <textarea

@@ -45,6 +45,7 @@ export const drizzleAssessmentRepository: AssessmentRepository = {
                     criterionKey: response.criterionKey,
                     answer: response.answer,
                     comments: response.comments,
+                    quantities: response.quantities,
                 })),
             )
 

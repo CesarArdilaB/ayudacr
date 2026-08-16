@@ -1,0 +1,1 @@
+ALTER TABLE "assessment_responses" ADD COLUMN "quantities" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -35,6 +35,7 @@ function validSubmission() {
             criterionKey: criterion.key,
             answer: 'yes',
             comments: '',
+            quantities: criterion.key === 'dignity_population_total' ? { men: 18, women: 22 } : {},
         })),
     }
 }
@@ -97,13 +98,21 @@ describe('POST /api/assessments', () => {
     })
 
     it('persists a valid assessment for the authenticated user', async () => {
-        const captured: Array<{ userId: string; institution: string; responseCount: number }> = []
+        const captured: Array<{
+            userId: string
+            institution: string
+            responseCount: number
+            populationQuantities: Record<string, number> | undefined
+        }> = []
         const url = await startTestApi(async () => ({ user: { id: 'user-42' } }), {
             async create(submission, userId) {
                 captured.push({
                     userId,
                     institution: submission.institution,
                     responseCount: submission.responses.length,
+                    populationQuantities: submission.responses.find(
+                        (item) => item.criterionKey === 'dignity_population_total',
+                    )?.quantities,
                 })
                 return { id: 'assessment-123' }
             },
@@ -122,6 +131,7 @@ describe('POST /api/assessments', () => {
                 userId: 'user-42',
                 institution: 'Coliseo El Pueblo',
                 responseCount: 44,
+                populationQuantities: { men: 18, women: 22 },
             },
         ])
     })

@@ -1005,6 +1005,55 @@ input[aria-invalid="true"] {
     outline-offset: 2px;
 }
 
+.criterion-body fieldset.criterion-quantities {
+    margin-top: 1.15rem;
+    border-left: 3px solid var(--sun);
+    padding: 0.85rem 1rem;
+    background: rgba(252, 209, 22, 0.1);
+}
+
+.criterion-quantities legend,
+.criterion-comment > span {
+    color: rgba(16, 29, 58, 0.68);
+    font-family: "Manrope Variable", sans-serif;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.quantity-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.8rem;
+    margin-top: 0.65rem;
+}
+
+.quantity-fields label {
+    display: grid;
+    gap: 0.4rem;
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.quantity-fields input {
+    width: 100%;
+    min-height: 3rem;
+    border: 1px solid rgba(0, 56, 147, 0.25);
+    border-radius: 0;
+    padding: 0.7rem 0.8rem;
+    color: var(--ink);
+    background: white;
+    font: inherit;
+    font-size: 1rem;
+}
+
+.quantity-fields input:focus {
+    border-color: var(--forest);
+    outline: 3px solid rgba(252, 209, 22, 0.35);
+}
+
 .criterion-comment {
     display: grid;
     gap: 0.55rem;
@@ -1753,6 +1802,15 @@ input[aria-invalid="true"] {
     .assessment-field select,
     .assessment-field textarea,
     .criterion-comment textarea {
+        font-size: 1rem;
+    }
+
+    .quantity-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .quantity-fields input {
+        min-height: 3.25rem;
         font-size: 1rem;
     }
 
