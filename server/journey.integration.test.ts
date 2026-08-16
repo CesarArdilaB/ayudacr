@@ -28,6 +28,7 @@ function completeAssessment(): AssessmentSubmission {
         protectionRiskDetails: 'Sin alertas adicionales.',
         generalObservations: 'Alojamiento operativo.',
         visitors: ['Equipo de campo'],
+        photos: [],
         responses: ASSESSMENT_CRITERIA.map((criterion) => ({
             criterionKey: criterion.key,
             answer: 'yes',

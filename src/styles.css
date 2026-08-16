@@ -1212,6 +1212,122 @@ input[aria-invalid="true"] {
     background: #fff5f0;
 }
 
+.photo-evidence {
+    margin-top: 1.5rem;
+    border: 1px solid rgba(0, 56, 147, 0.18);
+    padding: 1.4rem;
+    background: white;
+}
+
+.photo-evidence-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.photo-evidence-heading h3 {
+    margin: 0.35rem 0 0.3rem;
+    font-family: "Fraunces Variable", serif;
+    font-size: 1.35rem;
+}
+
+.photo-evidence-heading p {
+    max-width: 42rem;
+    margin: 0;
+    color: rgba(16, 29, 58, 0.68);
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.photo-evidence-heading > strong,
+.optional-label {
+    color: #003893;
+    font-size: 0.66rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.photo-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.2rem;
+}
+
+.photo-preview-grid figure {
+    position: relative;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    background: #eef2f8;
+}
+
+.photo-preview-grid img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+}
+
+.photo-preview-grid button {
+    width: 100%;
+    min-height: 2.6rem;
+    border: 0;
+    color: white;
+    background: #ce1126;
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 800;
+    cursor: pointer;
+    text-transform: uppercase;
+}
+
+.photo-picker {
+    display: inline-flex;
+    margin-top: 1.2rem;
+    cursor: pointer;
+}
+
+.photo-picker input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.photo-picker > span {
+    display: inline-flex;
+    min-height: 3rem;
+    align-items: center;
+    border: 1px solid #003893;
+    padding: 0.75rem 1rem;
+    color: #003893;
+    background: white;
+    font-size: 0.75rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.photo-picker input:focus-visible + span {
+    outline: 3px solid var(--sun);
+    outline-offset: 3px;
+}
+
+.photo-picker input:disabled + span {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.photo-message {
+    margin: 0.8rem 0 0;
+    color: #9b1524;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
 .review-warning p {
     margin: 0.4rem 0 0;
     font-size: 0.82rem;
@@ -1812,6 +1928,25 @@ input[aria-invalid="true"] {
     .quantity-fields input {
         min-height: 3.25rem;
         font-size: 1rem;
+    }
+
+    .photo-evidence {
+        padding: 1rem;
+    }
+
+    .photo-evidence-heading {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .photo-preview-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .photo-picker,
+    .photo-picker > span {
+        width: 100%;
+        justify-content: center;
     }
 
     .answer-options {

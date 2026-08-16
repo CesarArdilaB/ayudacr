@@ -60,4 +60,37 @@ describe('postAssessment', () => {
             ),
         ).rejects.toThrow('El correo de contacto no es válido.')
     })
+
+    it('translates server-side field limits into actionable Spanish', async () => {
+        await expect(
+            postAssessment(
+                submission,
+                async () =>
+                    new Response(
+                        JSON.stringify({
+                            error: 'Assessment validation failed',
+                            details: [
+                                'comments for dignity_pregnant must be at most 2000 characters',
+                            ],
+                        }),
+                        { status: 400, headers: { 'content-type': 'application/json' } },
+                    ),
+            ),
+        ).rejects.toThrow('Uno de los campos supera el máximo permitido.')
+    })
+
+    it('translates a non-JSON payload-too-large response', async () => {
+        await expect(
+            postAssessment(
+                submission,
+                async () =>
+                    new Response('Request Entity Too Large', {
+                        status: 413,
+                        headers: { 'content-type': 'text/plain' },
+                    }),
+            ),
+        ).rejects.toThrow(
+            'Las fotos exceden el tamaño permitido. Eliminá una foto o intentá nuevamente.',
+        )
+    })
 })

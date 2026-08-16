@@ -37,12 +37,13 @@ export function createApp({
 
     app.all('/api/auth/*splat', toNodeHandler(authInstance))
 
-    app.use(express.json())
-    app.use('/api/admin', createAdminRouter())
     app.use(
         '/api/assessments',
+        express.json({ limit: '4mb' }),
         createAssessmentsRouter({ repository: assessmentRepository, sessionResolver }),
     )
+    app.use(express.json())
+    app.use('/api/admin', createAdminRouter())
     app.get('/api/health', async (_request, response) => {
         try {
             await healthCheck()
@@ -54,6 +55,21 @@ export function createApp({
             })
         }
     })
+
+    app.use(
+        (
+            error: { status?: number; type?: string },
+            _request: express.Request,
+            response: express.Response,
+            next: express.NextFunction,
+        ) => {
+            if (error.status === 413 || error.type === 'entity.too.large') {
+                response.status(413).json({ error: 'Assessment payload is too large' })
+                return
+            }
+            next(error)
+        },
+    )
 
     if (process.env.NODE_ENV === 'production') {
         const serverDirectory = path.dirname(fileURLToPath(import.meta.url))

@@ -29,6 +29,13 @@
             "when": 1786887314964,
             "tag": "0003_cute_mentallo",
             "breakpoints": true
+        },
+        {
+            "idx": 4,
+            "version": "7",
+            "when": 1786917045295,
+            "tag": "0004_sticky_micromax",
+            "breakpoints": true
         }
     ]
 }

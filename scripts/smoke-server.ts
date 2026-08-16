@@ -14,6 +14,7 @@ const smokeAuth = createAuth(
         port: 3005,
         trustedOrigins: [origin],
     },
+    { allowPublicSignUp: true },
 )
 
 const sessionResolver: SessionResolver = async (headers) => {

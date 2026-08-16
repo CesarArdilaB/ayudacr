@@ -1,3 +1,12 @@
+import {
+    ASSESSMENT_PHOTO_MIME_TYPE,
+    type AssessmentPhotoInput,
+    decodeCanonicalBase64,
+    isCompleteJpeg,
+    MAX_ASSESSMENT_PHOTO_BYTES,
+    MAX_ASSESSMENT_PHOTOS,
+} from './assessment-photos.js'
+
 export const ASSESSMENT_ANSWERS = ['yes', 'no', 'not_observable'] as const
 export type AssessmentAnswer = (typeof ASSESSMENT_ANSWERS)[number]
 
@@ -263,6 +272,7 @@ export type AssessmentSubmission = {
     protectionRiskDetails: string
     generalObservations: string
     visitors: string[]
+    photos: AssessmentPhotoInput[]
     responses: AssessmentResponseInput[]
 }
 
@@ -276,6 +286,65 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cleanString(value: unknown): string {
     return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+}
+
+export const ASSESSMENT_TEXT_LIMITS = {
+    institution: 200,
+    municipality: 100,
+    department: 100,
+    contactName: 120,
+    contactRole: 120,
+    phone: 40,
+    email: 254,
+    protectionRiskDetails: 5_000,
+    generalObservations: 5_000,
+} as const
+
+export const MAX_ASSESSMENT_VISITORS = 20
+export const MAX_ASSESSMENT_COMMENT_CHARS = 2_000
+
+function parsePhotos(value: unknown, errors: string[]): AssessmentPhotoInput[] {
+    if (value !== undefined && !Array.isArray(value)) {
+        errors.push('photos must be an array')
+        return []
+    }
+    const submittedPhotos = Array.isArray(value) ? value : []
+    if (submittedPhotos.length > MAX_ASSESSMENT_PHOTOS) {
+        errors.push(`A maximum of ${MAX_ASSESSMENT_PHOTOS} photos is allowed`)
+    }
+
+    const photos: AssessmentPhotoInput[] = []
+    for (const [index, submittedPhoto] of submittedPhotos.entries()) {
+        const number = index + 1
+        if (!isRecord(submittedPhoto)) {
+            errors.push(`Photo ${number} must be an object`)
+            continue
+        }
+        const photoData = typeof submittedPhoto.data === 'string' ? submittedPhoto.data : ''
+        const bytes = decodeCanonicalBase64(photoData)
+        if (!bytes) {
+            errors.push(`Photo ${number} must contain canonical Base64 data`)
+            continue
+        }
+        if (submittedPhoto.mimeType !== ASSESSMENT_PHOTO_MIME_TYPE) {
+            errors.push(`Photo ${number} must use ${ASSESSMENT_PHOTO_MIME_TYPE}`)
+            continue
+        }
+        if (!isCompleteJpeg(bytes)) {
+            errors.push(`Photo ${number} must contain a complete JPEG image`)
+            continue
+        }
+        if (bytes.byteLength > MAX_ASSESSMENT_PHOTO_BYTES) {
+            errors.push(`Photo ${number} exceeds the ${MAX_ASSESSMENT_PHOTO_BYTES} byte limit`)
+            continue
+        }
+        photos.push({
+            data: photoData,
+            mimeType: ASSESSMENT_PHOTO_MIME_TYPE,
+            size: bytes.byteLength,
+        })
+    }
+    return photos
 }
 
 export function parseAssessmentSubmission(input: unknown): AssessmentParseResult {
@@ -317,6 +386,21 @@ export function parseAssessmentSubmission(input: unknown): AssessmentParseResult
     if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
         errors.push('email must be valid')
     }
+
+    for (const [field, limit] of Object.entries(ASSESSMENT_TEXT_LIMITS) as Array<
+        [keyof typeof ASSESSMENT_TEXT_LIMITS, number]
+    >) {
+        if (data[field].length > limit) errors.push(`${field} must be at most ${limit} characters`)
+    }
+
+    if (data.visitors.length > MAX_ASSESSMENT_VISITORS) {
+        errors.push(`A maximum of ${MAX_ASSESSMENT_VISITORS} visitors is allowed`)
+    }
+    for (const [index, visitor] of data.visitors.entries()) {
+        if (visitor.length > 120) errors.push(`visitor ${index + 1} must be at most 120 characters`)
+    }
+
+    const photos = parsePhotos(input.photos, errors)
 
     const submittedResponses = Array.isArray(input.responses) ? input.responses : []
     const criterionByKey = new Map(
@@ -361,10 +445,17 @@ export function parseAssessmentSubmission(input: unknown): AssessmentParseResult
             quantities[quantityKey] = quantity
         }
 
+        const comments = cleanString(response.comments)
+        if (comments.length > MAX_ASSESSMENT_COMMENT_CHARS) {
+            errors.push(
+                `comments for ${criterionKey} must be at most ${MAX_ASSESSMENT_COMMENT_CHARS} characters`,
+            )
+        }
+
         responseByKey.set(criterionKey, {
             criterionKey,
             answer: answer as AssessmentAnswer,
-            comments: cleanString(response.comments),
+            comments,
             quantities,
         })
     }
@@ -385,6 +476,7 @@ export function parseAssessmentSubmission(input: unknown): AssessmentParseResult
         success: true,
         data: {
             ...data,
+            photos,
             responses: orderedResponses,
         },
     }

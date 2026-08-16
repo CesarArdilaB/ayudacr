@@ -1,16 +1,21 @@
-import { useMemo, useState } from 'react'
+import { type ChangeEvent, useMemo, useRef, useState } from 'react'
 import {
     ASSESSMENT_CRITERIA,
     ASSESSMENT_SECTIONS,
+    ASSESSMENT_TEXT_LIMITS,
     type AssessmentAnswer,
     type AssessmentSubmission,
+    MAX_ASSESSMENT_COMMENT_CHARS,
+    MAX_ASSESSMENT_VISITORS,
 } from '../../shared/assessment.js'
+import { type AssessmentPhotoInput, MAX_ASSESSMENT_PHOTOS } from '../../shared/assessment-photos.js'
 import {
     COLOMBIA_DEPARTMENTS,
     municipalitiesForDepartment,
 } from '../../shared/colombia-locations.js'
+import { prepareAssessmentPhoto } from '../lib/assessment-photos'
 
-type AssessmentDetails = Omit<AssessmentSubmission, 'responses' | 'visitors'> & {
+type AssessmentDetails = Omit<AssessmentSubmission, 'responses' | 'visitors' | 'photos'> & {
     visitorsText: string
 }
 
@@ -51,6 +56,7 @@ function Field({
     type = 'text',
     required = false,
     placeholder,
+    maxLength,
 }: {
     label: string
     name: keyof AssessmentDetails
@@ -59,6 +65,7 @@ function Field({
     type?: string
     required?: boolean
     placeholder?: string
+    maxLength?: number
 }) {
     return (
         <label className="assessment-field">
@@ -72,6 +79,7 @@ function Field({
                 type={type}
                 required={required}
                 placeholder={placeholder}
+                maxLength={maxLength}
                 onChange={(event) => onChange(name, event.target.value)}
             />
         </label>
@@ -123,8 +131,10 @@ function SelectField({
 
 export function AssessmentForm({
     onSubmit,
+    photoPreparer = prepareAssessmentPhoto,
 }: {
     onSubmit: (submission: AssessmentSubmission) => Promise<{ id: string }>
+    photoPreparer?: (file: File) => Promise<AssessmentPhotoInput>
 }) {
     const [step, setStep] = useState(0)
     const [details, setDetails] = useState(emptyDetails)
@@ -132,6 +142,10 @@ export function AssessmentForm({
     const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string }>()
     const [isSaving, setIsSaving] = useState(false)
     const [isSaved, setIsSaved] = useState(false)
+    const [photos, setPhotos] = useState<Array<{ id: string; photo: AssessmentPhotoInput }>>([])
+    const [isProcessingPhotos, setIsProcessingPhotos] = useState(false)
+    const [photoMessage, setPhotoMessage] = useState('')
+    const photoInputRef = useRef<HTMLInputElement>(null)
     const currentSection = ASSESSMENT_SECTIONS[step - 1]
     const reviewStep = ASSESSMENT_SECTIONS.length + 1
     const totalSteps = reviewStep + 1
@@ -219,6 +233,21 @@ export function AssessmentForm({
             return
         }
 
+        const visitors = details.visitorsText
+            .split(/\n|,/)
+            .map((visitor) => visitor.trim())
+            .filter(Boolean)
+        if (
+            visitors.length > MAX_ASSESSMENT_VISITORS ||
+            visitors.some((visitor) => visitor.length > 120)
+        ) {
+            setMessage({
+                type: 'error',
+                text: 'Ingresá máximo 20 visitantes y hasta 120 caracteres por nombre.',
+            })
+            return
+        }
+
         setMessage(undefined)
         setStep(1)
         window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -259,6 +288,7 @@ export function AssessmentForm({
                 .split(/\n|,/)
                 .map((visitor) => visitor.trim())
                 .filter(Boolean),
+            photos: photos.map((item) => item.photo),
             responses: ASSESSMENT_CRITERIA.map((criterion) => ({
                 criterionKey: criterion.key,
                 answer: responses[criterion.key]?.answer as AssessmentAnswer,
@@ -270,6 +300,56 @@ export function AssessmentForm({
                 ),
             })),
         }
+    }
+
+    async function addPhotos(event: ChangeEvent<HTMLInputElement>) {
+        const selected = Array.from(event.target.files ?? [])
+        event.target.value = ''
+        if (selected.length === 0) return
+
+        const availableSlots = MAX_ASSESSMENT_PHOTOS - photos.length
+        if (availableSlots <= 0) {
+            setPhotoMessage(`Podés agregar máximo ${MAX_ASSESSMENT_PHOTOS} fotos.`)
+            return
+        }
+
+        const files = selected.slice(0, availableSlots)
+        const photoErrors: string[] = []
+        if (selected.length > availableSlots) {
+            photoErrors.push(
+                `Solo se procesaron ${availableSlots} foto${availableSlots === 1 ? '' : 's'} más.`,
+            )
+        }
+        setIsProcessingPhotos(true)
+
+        for (const [index, file] of files.entries()) {
+            setPhotoMessage(`Procesando foto ${index + 1} de ${files.length}…`)
+            try {
+                const photo = await photoPreparer(file)
+                setPhotos((current) => [
+                    ...current,
+                    {
+                        id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+                        photo,
+                    },
+                ])
+            } catch (error) {
+                photoErrors.push(
+                    `${file.name}: ${error instanceof Error ? error.message : 'No pudimos procesar la foto.'}`,
+                )
+            }
+        }
+
+        setIsProcessingPhotos(false)
+        setPhotoMessage(photoErrors.join(' '))
+        setIsSaved(false)
+    }
+
+    function removePhoto(id: string) {
+        setPhotos((current) => current.filter((item) => item.id !== id))
+        setPhotoMessage('')
+        setIsSaved(false)
+        if (photoInputRef.current) photoInputRef.current.value = ''
     }
 
     async function saveAssessment() {
@@ -371,6 +451,7 @@ export function AssessmentForm({
                                 value={details.institution}
                                 onChange={updateDetails}
                                 required
+                                maxLength={ASSESSMENT_TEXT_LIMITS.institution}
                             />
                             <Field
                                 label="Fecha de la visita"
@@ -401,12 +482,14 @@ export function AssessmentForm({
                                 value={details.contactName}
                                 onChange={updateDetails}
                                 required
+                                maxLength={ASSESSMENT_TEXT_LIMITS.contactName}
                             />
                             <Field
                                 label="Cargo"
                                 name="contactRole"
                                 value={details.contactRole}
                                 onChange={updateDetails}
+                                maxLength={ASSESSMENT_TEXT_LIMITS.contactRole}
                             />
                             <Field
                                 label="Teléfono"
@@ -414,6 +497,7 @@ export function AssessmentForm({
                                 value={details.phone}
                                 onChange={updateDetails}
                                 type="tel"
+                                maxLength={ASSESSMENT_TEXT_LIMITS.phone}
                             />
                             <Field
                                 label="Correo"
@@ -421,6 +505,7 @@ export function AssessmentForm({
                                 value={details.email}
                                 onChange={updateDetails}
                                 type="email"
+                                maxLength={ASSESSMENT_TEXT_LIMITS.email}
                             />
                         </div>
 
@@ -433,6 +518,7 @@ export function AssessmentForm({
                                 }
                                 placeholder="Un nombre por línea"
                                 rows={4}
+                                maxLength={MAX_ASSESSMENT_VISITORS * 121 - 1}
                             />
                         </label>
 
@@ -527,6 +613,7 @@ export function AssessmentForm({
                                             <span>Comentarios / observaciones</span>
                                             <textarea
                                                 rows={2}
+                                                maxLength={MAX_ASSESSMENT_COMMENT_CHARS}
                                                 value={responses[criterion.key]?.comments ?? ''}
                                                 onChange={(event) =>
                                                     updateComments(
@@ -547,6 +634,7 @@ export function AssessmentForm({
                                 <span>Detalles sobre riesgos de protección</span>
                                 <textarea
                                     rows={5}
+                                    maxLength={ASSESSMENT_TEXT_LIMITS.protectionRiskDetails}
                                     value={details.protectionRiskDetails}
                                     onChange={(event) =>
                                         updateDetails('protectionRiskDetails', event.target.value)
@@ -561,6 +649,7 @@ export function AssessmentForm({
                                 <span>Observaciones generales</span>
                                 <textarea
                                     rows={6}
+                                    maxLength={ASSESSMENT_TEXT_LIMITS.generalObservations}
                                     value={details.generalObservations}
                                     onChange={(event) =>
                                         updateDetails('generalObservations', event.target.value)
@@ -629,6 +718,72 @@ export function AssessmentForm({
                             </article>
                         </div>
 
+                        <section className="photo-evidence" aria-labelledby="photo-evidence-title">
+                            <div className="photo-evidence-heading">
+                                <div>
+                                    <span className="optional-label">Opcional</span>
+                                    <h3 id="photo-evidence-title">Evidencias fotográficas</h3>
+                                    <p>
+                                        Agregá hasta {MAX_ASSESSMENT_PHOTOS} fotos del alojamiento.
+                                        Evitá rostros, documentos y otros datos personales.
+                                    </p>
+                                </div>
+                                <strong>
+                                    {photos.length} de {MAX_ASSESSMENT_PHOTOS} fotos agregadas
+                                </strong>
+                            </div>
+
+                            {photos.length > 0 && (
+                                <div className="photo-preview-grid">
+                                    {photos.map((item, index) => (
+                                        <figure key={item.id}>
+                                            <img
+                                                src={`data:${item.photo.mimeType};base64,${item.photo.data}`}
+                                                alt={`Evidencia fotográfica ${index + 1}`}
+                                            />
+                                            <button
+                                                type="button"
+                                                aria-label={`Eliminar foto ${index + 1}`}
+                                                onClick={() => removePhoto(item.id)}
+                                                disabled={isSaving || isSaved}
+                                            >
+                                                Eliminar
+                                            </button>
+                                        </figure>
+                                    ))}
+                                </div>
+                            )}
+
+                            <label className="photo-picker">
+                                <input
+                                    ref={photoInputRef}
+                                    aria-label="Agregar fotos"
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    multiple
+                                    disabled={
+                                        isProcessingPhotos ||
+                                        isSaving ||
+                                        isSaved ||
+                                        photos.length >= MAX_ASSESSMENT_PHOTOS
+                                    }
+                                    onChange={addPhotos}
+                                />
+                                <span>
+                                    {isProcessingPhotos
+                                        ? 'Procesando…'
+                                        : photos.length >= MAX_ASSESSMENT_PHOTOS
+                                          ? 'Límite alcanzado'
+                                          : 'Agregar fotos'}
+                                </span>
+                            </label>
+                            {photoMessage && (
+                                <p className="photo-message" role="status">
+                                    {photoMessage}
+                                </p>
+                            )}
+                        </section>
+
                         <div className="review-warning">
                             <strong>Información sensible</strong>
                             <p>
@@ -650,6 +805,7 @@ export function AssessmentForm({
                                 type="button"
                                 disabled={
                                     isSaving ||
+                                    isProcessingPhotos ||
                                     isSaved ||
                                     answeredCount !== ASSESSMENT_CRITERIA.length
                                 }

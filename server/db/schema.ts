@@ -1,8 +1,11 @@
 import { sql } from 'drizzle-orm'
 import {
     boolean,
+    check,
+    customType,
     date,
     index,
+    integer,
     jsonb,
     pgEnum,
     pgTable,
@@ -11,6 +14,10 @@ import {
     uniqueIndex,
     uuid,
 } from 'drizzle-orm/pg-core'
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+    dataType: () => 'bytea',
+})
 
 export const userRole = pgEnum('user_role', ['evaluator', 'super_admin'])
 
@@ -140,5 +147,38 @@ export const assessmentResponses = pgTable(
     ],
 )
 
+export const assessmentPhotos = pgTable(
+    'assessment_photos',
+    {
+        id: uuid('id').defaultRandom().primaryKey(),
+        assessmentId: uuid('assessment_id')
+            .notNull()
+            .references(() => shelterAssessments.id, { onDelete: 'cascade' }),
+        position: integer('position').notNull(),
+        mimeType: text('mime_type').notNull(),
+        size: integer('size').notNull(),
+        data: bytea('data').notNull(),
+        createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    },
+    (table) => [
+        index('assessment_photos_assessment_idx').on(table.assessmentId),
+        uniqueIndex('assessment_photos_assessment_position_uidx').on(
+            table.assessmentId,
+            table.position,
+        ),
+        check(
+            'assessment_photos_position_check',
+            sql`${table.position} >= 0 AND ${table.position} < 4`,
+        ),
+        check('assessment_photos_mime_check', sql`${table.mimeType} = 'image/jpeg'`),
+        check(
+            'assessment_photos_size_check',
+            sql`${table.size} > 0 AND ${table.size} <= 307200 AND ${table.size} = octet_length(${table.data})`,
+        ),
+    ],
+)
+
 export type NewShelterAssessment = typeof shelterAssessments.$inferInsert
 export type NewAssessmentResponse = typeof assessmentResponses.$inferInsert
+export type NewAssessmentPhoto = typeof assessmentPhotos.$inferInsert

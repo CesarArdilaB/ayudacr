@@ -31,6 +31,12 @@ function validSubmission() {
         protectionRiskDetails: '',
         generalObservations: '',
         visitors: ['Carlos Ruiz'],
+        photos: [
+            {
+                data: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9]).toString('base64'),
+                mimeType: 'image/jpeg',
+            },
+        ],
         responses: ASSESSMENT_CRITERIA.map((criterion) => ({
             criterionKey: criterion.key,
             answer: 'yes',
@@ -103,6 +109,7 @@ describe('POST /api/assessments', () => {
             institution: string
             responseCount: number
             populationQuantities: Record<string, number> | undefined
+            photoCount: number
         }> = []
         const url = await startTestApi(async () => ({ user: { id: 'user-42' } }), {
             async create(submission, userId) {
@@ -113,6 +120,7 @@ describe('POST /api/assessments', () => {
                     populationQuantities: submission.responses.find(
                         (item) => item.criterionKey === 'dignity_population_total',
                     )?.quantities,
+                    photoCount: submission.photos.length,
                 })
                 return { id: 'assessment-123' }
             },
@@ -132,6 +140,7 @@ describe('POST /api/assessments', () => {
                 institution: 'Coliseo El Pueblo',
                 responseCount: 44,
                 populationQuantities: { men: 18, women: 22 },
+                photoCount: 1,
             },
         ])
     })

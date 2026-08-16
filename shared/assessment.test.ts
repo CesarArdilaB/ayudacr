@@ -19,6 +19,7 @@ function completeSubmission(): AssessmentSubmission {
         protectionRiskDetails: ' Sin detalles adicionales ',
         generalObservations: ' Visita realizada en la mañana ',
         visitors: [' Carlos Ruiz ', '', ' Laura Díaz '],
+        photos: [],
         responses: ASSESSMENT_CRITERIA.map((criterion) => ({
             criterionKey: criterion.key,
             answer: 'yes' as const,
@@ -28,6 +29,17 @@ function completeSubmission(): AssessmentSubmission {
                 : {}) as Record<string, number>,
         })),
     }
+}
+
+function jpegBase64(size = 16) {
+    const bytes = new Uint8Array(Math.max(size, 6))
+    bytes.set([0xff, 0xd8, 0xff], 0)
+    bytes.set([0xff, 0xd9], bytes.length - 2)
+    let binary = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+    }
+    return btoa(binary)
 }
 
 describe('assessment catalog', () => {
@@ -79,11 +91,104 @@ describe('parseAssessmentSubmission', () => {
             visitors: ['Carlos Ruiz', 'Laura Díaz'],
         })
         expect(result.data.responses[0]?.comments).toBe('Observación dignity_pregnant')
+        expect(result.data.photos).toEqual([])
         expect(
             result.data.responses.find(
                 (response) => response.criterionKey === 'dignity_population_total',
             )?.quantities,
         ).toEqual({ men: 18, women: 22 })
+    })
+
+    it('accepts and normalizes a JPEG photographic evidence', () => {
+        const result = parseAssessmentSubmission({
+            ...completeSubmission(),
+            photos: [{ data: jpegBase64(), mimeType: 'image/jpeg' }],
+        })
+
+        expect(result.success).toBe(true)
+        if (!result.success) return
+        expect(result.data.photos).toEqual([
+            { data: jpegBase64(), mimeType: 'image/jpeg', size: 16 },
+        ])
+    })
+
+    it('rejects unsafe photographic evidence', () => {
+        const result = parseAssessmentSubmission({
+            ...completeSubmission(),
+            photos: [
+                { data: 'not base64!', mimeType: 'image/jpeg' },
+                { data: btoa('not a jpeg'), mimeType: 'image/jpeg' },
+                { data: jpegBase64(), mimeType: 'image/png' },
+                { data: jpegBase64(307_201), mimeType: 'image/jpeg' },
+                { data: '', mimeType: 'image/jpeg' },
+            ],
+        })
+
+        expect(result).toEqual({
+            success: false,
+            errors: [
+                'A maximum of 4 photos is allowed',
+                'Photo 1 must contain canonical Base64 data',
+                'Photo 2 must contain a complete JPEG image',
+                'Photo 3 must use image/jpeg',
+                'Photo 4 exceeds the 307200 byte limit',
+                'Photo 5 must contain canonical Base64 data',
+            ],
+        })
+    })
+
+    it('rejects a provided photos value that is not an array', () => {
+        const result = parseAssessmentSubmission({
+            ...completeSubmission(),
+            photos: 'missing-array-shape',
+        })
+
+        expect(result).toEqual({
+            success: false,
+            errors: ['photos must be an array'],
+        })
+    })
+
+    it('bounds free text and visitor input', () => {
+        const submission = completeSubmission()
+        submission.institution = 'a'.repeat(201)
+        submission.generalObservations = 'a'.repeat(5_001)
+        submission.visitors = Array.from({ length: 21 }, (_, index) => `Visitante ${index}`)
+        const firstResponse = submission.responses.at(0)
+        if (!firstResponse) throw new Error('Expected a response')
+        firstResponse.comments = 'a'.repeat(2_001)
+
+        expect(parseAssessmentSubmission(submission)).toEqual({
+            success: false,
+            errors: [
+                'institution must be at most 200 characters',
+                'generalObservations must be at most 5000 characters',
+                'A maximum of 20 visitors is allowed',
+                'comments for dignity_pregnant must be at most 2000 characters',
+            ],
+        })
+    })
+
+    it('keeps the maximum serialized submission below the serverless body budget', () => {
+        const submission = completeSubmission()
+        submission.institution = 'a'.repeat(200)
+        submission.contactName = 'a'.repeat(120)
+        submission.contactRole = 'a'.repeat(120)
+        submission.phone = 'a'.repeat(40)
+        submission.email = `${'a'.repeat(242)}@example.com`
+        submission.protectionRiskDetails = 'a'.repeat(5_000)
+        submission.generalObservations = 'a'.repeat(5_000)
+        submission.visitors = Array.from({ length: 20 }, () => 'a'.repeat(120))
+        for (const response of submission.responses) response.comments = 'a'.repeat(2_000)
+        submission.photos = Array.from({ length: 4 }, () => ({
+            data: jpegBase64(307_200),
+            mimeType: 'image/jpeg' as const,
+            size: 307_200,
+        }))
+
+        expect(new TextEncoder().encode(JSON.stringify(submission)).byteLength).toBeLessThan(
+            3_500_000,
+        )
     })
 
     it('rejects missing shelter identity fields', () => {

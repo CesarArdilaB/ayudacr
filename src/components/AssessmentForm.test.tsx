@@ -56,6 +56,7 @@ describe('AssessmentForm', () => {
         expect(screen.getByLabelText('Institución visitada')).toBeInTheDocument()
         expect(screen.getByLabelText('Municipio')).toBeInTheDocument()
         expect(screen.getByLabelText('Departamento')).toBeInTheDocument()
+        expect(screen.getByLabelText('Institución visitada')).toHaveAttribute('maxlength', '200')
     })
 
     it('does not advance when required shelter details are missing', async () => {
@@ -166,5 +167,71 @@ describe('AssessmentForm', () => {
 
         expect(await screen.findByRole('alert')).toHaveTextContent('network unavailable')
         expect(screen.getByRole('heading', { name: 'Revisión final' })).toBeInTheDocument()
+    })
+
+    it('previews, removes, reselects and submits an optional photo', async () => {
+        const user = userEvent.setup()
+        const photo = {
+            data: '/9j/AAAA/9k=',
+            mimeType: 'image/jpeg' as const,
+            size: 8,
+        }
+        const photoPreparer = vi.fn().mockResolvedValue(photo)
+        let captured: AssessmentSubmission | undefined
+        render(
+            <AssessmentForm
+                photoPreparer={photoPreparer}
+                onSubmit={async (submission) => {
+                    captured = submission
+                    return { id: 'assessment-photo' }
+                }}
+            />,
+        )
+        await completeAssessment(user)
+        const input = screen.getByLabelText('Agregar fotos')
+        const file = new File(['camera bytes'], 'shelter.jpg', { type: 'image/jpeg' })
+
+        await user.upload(input, file)
+        expect(await screen.findByAltText('Evidencia fotográfica 1')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Eliminar foto 1' }))
+        expect(screen.queryByAltText('Evidencia fotográfica 1')).not.toBeInTheDocument()
+
+        await user.upload(input, file)
+        expect(await screen.findByText('1 de 4 fotos agregadas')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Guardar evaluación' }))
+
+        expect(captured?.photos).toEqual([photo])
+        expect(photoPreparer).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps four prepared photos visible after a failed save', async () => {
+        const user = userEvent.setup()
+        const photoPreparer = vi.fn().mockResolvedValue({
+            data: '/9j/AAAA/9k=',
+            mimeType: 'image/jpeg',
+            size: 8,
+        })
+        render(
+            <AssessmentForm
+                photoPreparer={photoPreparer}
+                onSubmit={async () => {
+                    throw new Error('network unavailable')
+                }}
+            />,
+        )
+        await completeAssessment(user)
+        const files = Array.from(
+            { length: 5 },
+            (_, index) =>
+                new File([`photo ${index}`], `photo-${index}.jpg`, { type: 'image/jpeg' }),
+        )
+
+        await user.upload(screen.getByLabelText('Agregar fotos'), files)
+        expect(await screen.findByText('4 de 4 fotos agregadas')).toBeInTheDocument()
+        expect(photoPreparer).toHaveBeenCalledTimes(4)
+        await user.click(screen.getByRole('button', { name: 'Guardar evaluación' }))
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('network unavailable')
+        expect(screen.getAllByRole('img', { name: /Evidencia fotográfica/ })).toHaveLength(4)
     })
 })
