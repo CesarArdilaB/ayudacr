@@ -262,7 +262,7 @@ export function createDrizzleAdminAssessmentRepository(
                         photoCount: photoCountByAssessment.get(record.id) ?? 0,
                     }
                 }
-                const last = records.at(-1)
+                const last = records[records.length - 1]
                 if (!last || records.length < batchSize) return
                 cursor = { createdAt: last.createdAtCursor, id: last.id }
             }
@@ -873,7 +873,7 @@ export function createAdminRouter({
         if (!parsed.success) {
             response.status(400).json({
                 error: 'La evaluación no es válida',
-                details: parsed.errors,
+                details: 'errors' in parsed ? parsed.errors : [],
             })
             return
         }

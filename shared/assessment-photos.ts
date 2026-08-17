@@ -36,7 +36,7 @@ export function isCompleteJpeg(bytes: Uint8Array): boolean {
         bytes[0] === 0xff &&
         bytes[1] === 0xd8 &&
         bytes[2] === 0xff &&
-        bytes.at(-2) === 0xff &&
-        bytes.at(-1) === 0xd9
+        bytes[bytes.length - 2] === 0xff &&
+        bytes[bytes.length - 1] === 0xd9
     )
 }
