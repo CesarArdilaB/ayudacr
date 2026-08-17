@@ -92,6 +92,71 @@ async function seedEditableAssessment(
     return { id, submission, createdAt }
 }
 
+function controllableFirstSelect<T extends object>(database: T) {
+    let releaseFirstSelect!: () => void
+    let firstSelectCompleted!: () => void
+    const release = new Promise<void>((resolve) => {
+        releaseFirstSelect = resolve
+    })
+    const completed = new Promise<void>((resolve) => {
+        firstSelectCompleted = resolve
+    })
+    let shouldPause = true
+
+    const wrapBuilder = (builder: object): object =>
+        new Proxy(builder, {
+            get(target, property) {
+                const value = Reflect.get(target, property, target)
+                if (property === 'then' && typeof value === 'function') {
+                    return (
+                        onFulfilled: (result: unknown) => unknown,
+                        onRejected: (error: unknown) => unknown,
+                    ) =>
+                        value.call(
+                            target,
+                            async (result: unknown) => {
+                                if (shouldPause) {
+                                    shouldPause = false
+                                    firstSelectCompleted()
+                                    await release
+                                }
+                                return onFulfilled(result)
+                            },
+                            onRejected,
+                        )
+                }
+                if (typeof value !== 'function') return value
+                return (...args: unknown[]) => {
+                    const result = value.apply(target, args)
+                    return result && typeof result === 'object' ? wrapBuilder(result) : result
+                }
+            },
+        })
+
+    const wrapDatabase = (target: object): object =>
+        new Proxy(target, {
+            get(innerTarget, property) {
+                const value = Reflect.get(innerTarget, property, innerTarget)
+                if (property === 'select' && typeof value === 'function') {
+                    return (...args: unknown[]) => wrapBuilder(value.apply(innerTarget, args))
+                }
+                if (property === 'transaction' && typeof value === 'function') {
+                    return (callback: (transaction: unknown) => unknown) =>
+                        value.call(innerTarget, (transaction: object) =>
+                            callback(wrapDatabase(transaction)),
+                        )
+                }
+                return typeof value === 'function' ? value.bind(innerTarget) : value
+            },
+        })
+
+    return {
+        database: wrapDatabase(database) as T,
+        firstSelectCompleted: completed,
+        releaseFirstSelect,
+    }
+}
+
 describe('admin assessment export repository with PostgreSQL', () => {
     let client: PGlite
     let database: ReturnType<typeof drizzle<typeof schema>>
@@ -392,6 +457,67 @@ describe('admin assessment export repository with PostgreSQL', () => {
             expect(unknown).toHaveLength(1)
         })
 
+        it('returns one coherent snapshot while a concurrent update waits on the parent lock', async () => {
+            const oldPhoto = Buffer.from([0xff, 0xd8, 3, 0xff, 0xd9])
+            const newPhoto = Buffer.from([0xff, 0xd8, 4, 0xff, 0xd9])
+            const seeded = await seedEditableAssessment(database, { photos: [oldPhoto] })
+            const exactRevision = await client.query<{ revision: string }>(
+                'select updated_at::text as revision from shelter_assessments where id = $1',
+                [seeded.id],
+            )
+            const controlled = controllableFirstSelect(database)
+            const repository = createDrizzleAdminAssessmentRepository(controlled.database as never)
+
+            const finding = repository.findEditable(seeded.id)
+            await controlled.firstSelectCompleted
+            let updateSettled = false
+            const updating = repository
+                .update({
+                    id: seeded.id,
+                    revision: exactRevision.rows[0]?.revision ?? '',
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableSubmission({
+                        institution: 'Versión nueva',
+                        photos: [
+                            {
+                                mimeType: 'image/jpeg',
+                                size: newPhoto.length,
+                                data: newPhoto.toString('base64'),
+                            },
+                        ],
+                        responses: editableSubmission().responses.map((response) => ({
+                            ...response,
+                            answer: 'no' as const,
+                        })),
+                    }),
+                })
+                .then((result) => {
+                    updateSettled = true
+                    return result
+                })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+
+            const settledBeforeRelease = updateSettled
+            controlled.releaseFirstSelect()
+            const [snapshot, updateResult] = await Promise.all([finding, updating])
+
+            expect(settledBeforeRelease).toBe(false)
+            expect(snapshot.status).toBe('found')
+            if (snapshot.status !== 'found') return
+            expect(snapshot.record.assessment.institution).toBe(seeded.submission.institution)
+            expect(snapshot.record.assessment.responses[0]?.answer).toBe('yes')
+            expect(snapshot.record.photos.map((photo) => photo.data)).toEqual([oldPhoto])
+            expect(updateResult.status).toBe('updated')
+            const current = await repository.findEditable(seeded.id)
+            expect(current.status).toBe('found')
+            if (current.status !== 'found') return
+            expect(current.record.assessment.institution).toBe('Versión nueva')
+            expect(current.record.assessment.responses.every((item) => item.answer === 'no')).toBe(
+                true,
+            )
+            expect(current.record.photos.map((photo) => photo.data)).toEqual([newPhoto])
+        })
+
         it('advances the revision by at least one PostgreSQL microsecond and lets only one concurrent writer win', async () => {
             const seeded = await seedEditableAssessment(database)
             const repository = createDrizzleAdminAssessmentRepository(database as never)
@@ -515,6 +641,35 @@ describe('admin assessment export repository with PostgreSQL', () => {
                 status: 'found',
                 record: { assessment: { institution: seeded.submission.institution } },
             })
+        })
+
+        it('rolls the parent and deleted responses back when response reinsertion fails', async () => {
+            const seeded = await seedEditableAssessment(database, {
+                photos: [Buffer.from([0xff, 0xd8, 5, 0xff, 0xd9])],
+            })
+            const repository = createDrizzleAdminAssessmentRepository(database as never)
+            const loaded = await repository.findEditable(seeded.id)
+            if (loaded.status !== 'found') throw new Error('Expected editable fixture')
+            const invalid = editableSubmission({ institution: 'No debe quedar' })
+            invalid.responses = [...invalid.responses, invalid.responses[0]]
+            const beforeParent = await database.select().from(schema.shelterAssessments)
+            const beforeResponses = await database.select().from(schema.assessmentResponses)
+            const beforePhotos = await database.select().from(schema.assessmentPhotos)
+
+            await expect(
+                repository.update({
+                    id: seeded.id,
+                    revision: loaded.record.revision,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: invalid,
+                }),
+            ).rejects.toThrow()
+
+            expect(await database.select().from(schema.shelterAssessments)).toEqual(beforeParent)
+            expect(await database.select().from(schema.assessmentResponses)).toEqual(
+                beforeResponses,
+            )
+            expect(await database.select().from(schema.assessmentPhotos)).toEqual(beforePhotos)
         })
     })
 })

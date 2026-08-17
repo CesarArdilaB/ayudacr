@@ -322,22 +322,23 @@ export function createDrizzleAdminAssessmentRepository(
             }
         },
         async findEditable(id) {
-            const [parent] = await database
-                .select({
-                    id: shelterAssessments.id,
-                    formVersion: shelterAssessments.formVersion,
-                })
-                .from(shelterAssessments)
-                .where(eq(shelterAssessments.id, id))
+            return database.transaction(async (transaction) => {
+                const [parent] = await transaction
+                    .select({
+                        id: shelterAssessments.id,
+                        formVersion: shelterAssessments.formVersion,
+                    })
+                    .from(shelterAssessments)
+                    .where(eq(shelterAssessments.id, id))
+                    .for('share')
 
-            if (!parent) return { status: 'not_found' }
-            if (parent.formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
-                return { status: 'unsupported' }
-            }
+                if (!parent) return { status: 'not_found' }
+                if (parent.formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
+                    return { status: 'unsupported' }
+                }
 
-            const criterionKeys = ASSESSMENT_CRITERIA.map((criterion) => criterion.key)
-            const [records, storedResponses, photos] = await Promise.all([
-                database
+                const criterionKeys = ASSESSMENT_CRITERIA.map((criterion) => criterion.key)
+                const records = await transaction
                     .select({
                         id: shelterAssessments.id,
                         revision: sql<string>`${shelterAssessments.updatedAt}::text`,
@@ -363,8 +364,8 @@ export function createDrizzleAdminAssessmentRepository(
                             eq(shelterAssessments.id, id),
                             eq(shelterAssessments.formVersion, CURRENT_ASSESSMENT_FORM_VERSION),
                         ),
-                    ),
-                database
+                    )
+                const storedResponses = await transaction
                     .select({
                         criterionKey: assessmentResponses.criterionKey,
                         answer: assessmentResponses.answer,
@@ -377,8 +378,8 @@ export function createDrizzleAdminAssessmentRepository(
                             eq(assessmentResponses.assessmentId, id),
                             inArray(assessmentResponses.criterionKey, criterionKeys),
                         ),
-                    ),
-                database
+                    )
+                const photos = await transaction
                     .select({
                         position: assessmentPhotos.position,
                         mimeType: assessmentPhotos.mimeType,
@@ -387,48 +388,48 @@ export function createDrizzleAdminAssessmentRepository(
                     })
                     .from(assessmentPhotos)
                     .where(eq(assessmentPhotos.assessmentId, id))
-                    .orderBy(asc(assessmentPhotos.position)),
-            ])
-            const [record] = records
-            if (!record) return { status: 'not_found' }
-            const responseByKey = new Map(
-                storedResponses.map((response) => [response.criterionKey, response]),
-            )
+                    .orderBy(asc(assessmentPhotos.position))
+                const [record] = records
+                if (!record) return { status: 'not_found' }
+                const responseByKey = new Map(
+                    storedResponses.map((response) => [response.criterionKey, response]),
+                )
 
-            return {
-                status: 'found',
-                record: {
-                    id: record.id,
-                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
-                    revision: record.revision,
-                    createdAt: record.createdAt.toISOString(),
-                    createdBy: { name: record.creatorName, email: record.creatorEmail },
-                    assessment: {
-                        institution: record.institution,
-                        visitDate: record.visitDate,
-                        municipality: record.municipality,
-                        department: record.department,
-                        contactName: record.contactName,
-                        contactRole: record.contactRole,
-                        phone: record.phone,
-                        email: record.email,
-                        protectionRiskDetails: record.protectionRiskDetails,
-                        generalObservations: record.generalObservations,
-                        visitors: record.visitors,
-                        photos: [],
-                        responses: criterionKeys
-                            .map((criterionKey) => responseByKey.get(criterionKey))
-                            .filter((response): response is NonNullable<typeof response> =>
-                                Boolean(response),
-                            ),
+                return {
+                    status: 'found',
+                    record: {
+                        id: record.id,
+                        formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                        revision: record.revision,
+                        createdAt: record.createdAt.toISOString(),
+                        createdBy: { name: record.creatorName, email: record.creatorEmail },
+                        assessment: {
+                            institution: record.institution,
+                            visitDate: record.visitDate,
+                            municipality: record.municipality,
+                            department: record.department,
+                            contactName: record.contactName,
+                            contactRole: record.contactRole,
+                            phone: record.phone,
+                            email: record.email,
+                            protectionRiskDetails: record.protectionRiskDetails,
+                            generalObservations: record.generalObservations,
+                            visitors: record.visitors,
+                            photos: [],
+                            responses: criterionKeys
+                                .map((criterionKey) => responseByKey.get(criterionKey))
+                                .filter((response): response is NonNullable<typeof response> =>
+                                    Boolean(response),
+                                ),
+                        },
+                        photos: photos.map((photo) => ({
+                            ...photo,
+                            mimeType: 'image/jpeg' as const,
+                            data: Buffer.from(photo.data),
+                        })),
                     },
-                    photos: photos.map((photo) => ({
-                        ...photo,
-                        mimeType: 'image/jpeg' as const,
-                        data: Buffer.from(photo.data),
-                    })),
-                },
-            }
+                }
+            })
         },
         async update(input) {
             return database.transaction(async (transaction) => {
