@@ -34,6 +34,73 @@ const record: AdminEditableAssessment = {
 }
 
 describe('AdminAssessmentEditor', () => {
+    it('retries a failed detail load and renders the successful record', async () => {
+        const user = userEvent.setup()
+        const getAssessment = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValueOnce({ record })
+        render(
+            <AdminAssessmentEditor
+                assessmentId={record.id}
+                getAssessment={getAssessment}
+                updateAssessment={vi.fn()}
+                onCancel={vi.fn()}
+                onSaved={vi.fn()}
+                onDirtyChange={vi.fn()}
+                onSavingChange={vi.fn()}
+            />,
+        )
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('No fue posible cargar')
+        await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+        expect(await screen.findByDisplayValue('Coliseo')).toBeInTheDocument()
+        expect(getAssessment).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['conflicto de revisión', 'falla temporal'])(
+        'preserves fields and photos after %s and permits retry',
+        async (message) => {
+            const user = userEvent.setup()
+            const withPhoto = {
+                ...record,
+                assessment: {
+                    ...record.assessment,
+                    photos: [{ data: '/9j/AAAA/9k=', mimeType: 'image/jpeg' as const, size: 8 }],
+                },
+            }
+            const updateAssessment = vi
+                .fn()
+                .mockRejectedValueOnce(new Error(message))
+                .mockResolvedValueOnce({ id: record.id, revision: 'revision-2' })
+            const onSaved = vi.fn()
+            render(
+                <AdminAssessmentEditor
+                    assessmentId={record.id}
+                    getAssessment={vi.fn().mockResolvedValue({ record: withPhoto })}
+                    updateAssessment={updateAssessment}
+                    onCancel={vi.fn()}
+                    onSaved={onSaved}
+                    onDirtyChange={vi.fn()}
+                    onSavingChange={vi.fn()}
+                />,
+            )
+
+            const institution = await screen.findByLabelText('Institución visitada')
+            await user.type(institution, ' editado')
+            await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+            expect(screen.getByAltText('Evidencia fotográfica 1')).toBeInTheDocument()
+            await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+            expect(await screen.findByRole('alert')).toHaveTextContent(message)
+            expect(screen.getByAltText('Evidencia fotográfica 1')).toBeInTheDocument()
+            await user.click(screen.getByRole('button', { name: 'Datos del alojamiento' }))
+            expect(screen.getByLabelText('Institución visitada')).toHaveValue('Coliseo editado')
+            await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+            await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+            expect(updateAssessment).toHaveBeenCalledTimes(2)
+            expect(onSaved).toHaveBeenCalledOnce()
+        },
+    )
     it('loads the detail and saves with its captured revision', async () => {
         const user = userEvent.setup()
         const getAssessment = vi.fn().mockResolvedValue({ record })
@@ -66,12 +133,15 @@ describe('AdminAssessmentEditor', () => {
         expect(onSavingChange).toHaveBeenLastCalledWith(false)
     })
 
-    it('aborts a late load when cancelled', async () => {
+    it('aborts and ignores a detail load that resolves after cancellation', async () => {
         const user = userEvent.setup()
         let signal: AbortSignal | undefined
+        let resolveLoad: ((value: { record: AdminEditableAssessment }) => void) | undefined
         const getAssessment = vi.fn((_id, passedSignal) => {
             signal = passedSignal
-            return new Promise<{ record: AdminEditableAssessment }>(() => {})
+            return new Promise<{ record: AdminEditableAssessment }>((resolve) => {
+                resolveLoad = resolve
+            })
         })
         const onCancel = vi.fn()
         render(
@@ -88,5 +158,34 @@ describe('AdminAssessmentEditor', () => {
         await user.click(screen.getByRole('button', { name: 'Volver a registros' }))
         expect(signal?.aborted).toBe(true)
         expect(onCancel).toHaveBeenCalledOnce()
+        resolveLoad?.({ record })
+        await Promise.resolve()
+        expect(screen.queryByDisplayValue('Coliseo')).not.toBeInTheDocument()
+    })
+
+    it('aborts and ignores a detail load that resolves after unmount', async () => {
+        let signal: AbortSignal | undefined
+        let resolveLoad: ((value: { record: AdminEditableAssessment }) => void) | undefined
+        const view = render(
+            <AdminAssessmentEditor
+                assessmentId={record.id}
+                getAssessment={vi.fn((_id, passedSignal) => {
+                    signal = passedSignal
+                    return new Promise<{ record: AdminEditableAssessment }>((resolve) => {
+                        resolveLoad = resolve
+                    })
+                })}
+                updateAssessment={vi.fn()}
+                onCancel={vi.fn()}
+                onSaved={vi.fn()}
+                onDirtyChange={vi.fn()}
+                onSavingChange={vi.fn()}
+            />,
+        )
+        view.unmount()
+        expect(signal?.aborted).toBe(true)
+        resolveLoad?.({ record })
+        await Promise.resolve()
+        expect(screen.queryByDisplayValue('Coliseo')).not.toBeInTheDocument()
     })
 })

@@ -1,7 +1,8 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { AdminAssessment } from '../lib/admin-api.js'
+import { ASSESSMENT_CRITERIA } from '../../shared/assessment.js'
+import type { AdminAssessment, AdminEditableAssessment } from '../lib/admin-api.js'
 import { AdminRecords } from './AdminRecords.js'
 
 const record: AdminAssessment = {
@@ -13,6 +14,34 @@ const record: AdminAssessment = {
     createdAt: '2026-08-15T20:00:00.000Z',
     createdBy: { name: 'Ana Torres', email: 'ana@example.com' },
     responseCount: 44,
+}
+
+const editableRecord: AdminEditableAssessment = {
+    id: record.id,
+    revision: 'revision-1',
+    formVersion: '2026-08-10',
+    createdAt: record.createdAt,
+    createdBy: record.createdBy,
+    assessment: {
+        institution: record.institution,
+        visitDate: record.visitDate,
+        municipality: 'PEREIRA',
+        department: 'RISARALDA',
+        contactName: 'Ana',
+        contactRole: '',
+        phone: '',
+        email: '',
+        protectionRiskDetails: '',
+        generalObservations: '',
+        visitors: [],
+        photos: [],
+        responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+            criterionKey: criterion.key,
+            answer: 'yes',
+            comments: '',
+            quantities: {},
+        })),
+    },
 }
 
 function services(records = [record]) {
@@ -69,12 +98,59 @@ describe('AdminRecords exports', () => {
         await user.click(screen.getByRole('button', { name: 'Volver a registros' }))
         expect(screen.getByRole('searchbox', { name: 'Buscar registros' })).toHaveValue('coliseo')
     })
+    it('preserves the query after saving and reloads the updated summary', async () => {
+        const user = userEvent.setup()
+        const updated = { ...record, institution: 'Coliseo Renovado' }
+        const loadRecords = vi
+            .fn()
+            .mockResolvedValueOnce({ records: [record] })
+            .mockResolvedValueOnce({ records: [updated] })
+        render(
+            <AdminRecords
+                loadRecords={loadRecords}
+                getAssessment={vi.fn().mockResolvedValue({ record: editableRecord })}
+                updateAssessment={vi
+                    .fn()
+                    .mockResolvedValue({ id: record.id, revision: 'revision-2' })}
+            />,
+        )
+        const search = await screen.findByRole('searchbox', { name: 'Buscar registros' })
+        await user.type(search, 'coliseo')
+        await user.click(screen.getByRole('button', { name: 'Editar Coliseo Central' }))
+        await screen.findByDisplayValue('Coliseo Central')
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+        expect(await screen.findByText('Coliseo Renovado')).toBeInTheDocument()
+        expect(screen.getByRole('searchbox', { name: 'Buscar registros' })).toHaveValue('coliseo')
+        expect(loadRecords).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores an older list response after a newer refresh wins', async () => {
+        let resolveOld: ((value: { records: AdminAssessment[] }) => void) | undefined
+        const oldLoad = vi.fn(
+            () =>
+                new Promise<{ records: AdminAssessment[] }>((resolve) => {
+                    resolveOld = resolve
+                }),
+        )
+        const newest = { ...record, institution: 'Registro más reciente' }
+        const newLoad = vi.fn().mockResolvedValue({ records: [newest] })
+        const view = render(<AdminRecords loadRecords={oldLoad} />)
+
+        view.rerender(<AdminRecords loadRecords={newLoad} />)
+        expect(await screen.findByText('Registro más reciente')).toBeInTheDocument()
+        resolveOld?.({ records: [{ ...record, institution: 'Registro obsoleto' }] })
+        await Promise.resolve()
+        expect(screen.queryByText('Registro obsoleto')).not.toBeInTheDocument()
+        expect(screen.getByText('Registro más reciente')).toBeInTheDocument()
+    })
     it('offers the global CSV and one PDF action per ready record', async () => {
         const props = services()
         render(<AdminRecords {...props} />)
 
         expect(await screen.findByText('Coliseo Central')).toBeInTheDocument()
-        expect(screen.getByRole('columnheader', { name: 'Descarga' })).toBeInTheDocument()
+        expect(screen.getByRole('columnheader', { name: 'Acciones' })).toBeInTheDocument()
         expect(
             screen.getByRole('button', { name: 'Descargar PDF de Coliseo Central' }),
         ).toBeEnabled()
@@ -86,6 +162,7 @@ describe('AdminRecords exports', () => {
         expect(rowActions).toContainElement(
             screen.getByRole('button', { name: 'Descargar PDF de Coliseo Central' }),
         )
+        expect(rowActions?.closest('td')).toHaveAttribute('data-label', 'Acciones')
     })
 
     it('keeps CSV available when there are no records', async () => {

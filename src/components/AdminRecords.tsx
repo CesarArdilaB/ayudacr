@@ -305,7 +305,7 @@ export function AdminRecords({
                                 <th>Visita</th>
                                 <th>Evaluador</th>
                                 <th>Respuestas</th>
-                                <th>Descarga</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -329,7 +329,7 @@ export function AdminRecords({
                                             {record.responseCount} / 44
                                         </span>
                                     </td>
-                                    <td data-label="Descarga">
+                                    <td data-label="Acciones">
                                         <div className="record-row-actions">
                                             <button
                                                 className="record-edit-button"

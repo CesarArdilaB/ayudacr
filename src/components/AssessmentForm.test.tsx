@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ASSESSMENT_CRITERIA, type AssessmentSubmission } from '../../shared/assessment.js'
-import { AssessmentForm } from './AssessmentForm'
+import { AssessmentForm, createAssessmentDirtySnapshot } from './AssessmentForm'
 
 function emptyCompleteSubmission(): AssessmentSubmission {
     return {
@@ -70,6 +70,73 @@ async function completeAssessment(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('AssessmentForm', () => {
+    it('marks only edit navigation for compact direct access on mobile and tablet', () => {
+        const { rerender } = render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={emptyCompleteSubmission()}
+                onSubmit={async () => ({ id: '1' })}
+            />,
+        )
+        expect(
+            screen.getByRole('navigation', { name: 'Secciones de la evaluación' }).closest('aside'),
+        ).toHaveClass('edit-step-navigation')
+        expect(screen.getAllByRole('button', { name: /Acceso|Participación/ })[0]).toHaveClass(
+            'edit-step-link',
+        )
+
+        rerender(<AssessmentForm onSubmit={async () => ({ id: '1' })} />)
+        expect(
+            screen.getByRole('navigation', { name: 'Secciones de la evaluación' }).closest('aside'),
+        ).not.toHaveClass('edit-step-navigation')
+    })
+
+    it('builds a lightweight dirty snapshot without serializing photo base64', () => {
+        const submission = {
+            ...emptyCompleteSubmission(),
+            photos: [
+                {
+                    data: `SECRET-${'A'.repeat(500_000)}`,
+                    mimeType: 'image/jpeg' as const,
+                    size: 500_007,
+                },
+            ],
+        }
+        const snapshot = createAssessmentDirtySnapshot(submission, ['stored-0:image/jpeg:500007'])
+
+        expect(snapshot).not.toContain('SECRET')
+        expect(snapshot.length).toBeLessThan(20_000)
+        expect(snapshot).toContain('stored-0')
+    })
+
+    it('tracks adding and removing a new photo using its lightweight identity', async () => {
+        const user = userEvent.setup()
+        const onDirtyChange = vi.fn()
+        render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={emptyCompleteSubmission()}
+                onDirtyChange={onDirtyChange}
+                photoPreparer={vi
+                    .fn()
+                    .mockResolvedValue({
+                        data: `UNSERIALIZED-${'A'.repeat(100_000)}`,
+                        mimeType: 'image/jpeg',
+                        size: 100_013,
+                    })}
+                onSubmit={async () => ({ id: '1' })}
+            />,
+        )
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.upload(
+            screen.getByLabelText('Agregar fotos'),
+            new File(['photo'], 'photo.jpg', { type: 'image/jpeg' }),
+        )
+        expect(await screen.findByAltText('Evidencia fotográfica 1')).toBeInTheDocument()
+        expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+        await user.click(screen.getByRole('button', { name: 'Eliminar foto 1' }))
+        expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    })
     it('initializes every editable field and allows direct section navigation', async () => {
         const user = userEvent.setup()
         const initialSubmission: AssessmentSubmission = {

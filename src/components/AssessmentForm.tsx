@@ -70,7 +70,11 @@ export function initializeAssessmentResponses(initial?: AssessmentSubmission): R
 }
 
 export function initializeAssessmentPhotos(initial?: AssessmentSubmission) {
-    return (initial?.photos ?? []).map((photo, index) => ({ id: `stored-${index}`, photo }))
+    return (initial?.photos ?? []).map((photo, index) => createPhotoState(`stored-${index}`, photo))
+}
+
+function createPhotoState(id: string, photo: AssessmentPhotoInput) {
+    return { id, photo, fingerprint: `${id}:${photo.mimeType}:${photo.size}` }
 }
 
 function buildAssessmentSubmission(
@@ -105,6 +109,14 @@ function buildAssessmentSubmission(
             ),
         })),
     }
+}
+
+export function createAssessmentDirtySnapshot(
+    submission: AssessmentSubmission,
+    photoFingerprints: readonly string[],
+): string {
+    const { photos: _photoData, ...withoutPhotoData } = submission
+    return JSON.stringify({ ...withoutPhotoData, photos: photoFingerprints })
 }
 
 function Field({
@@ -215,27 +227,30 @@ export function AssessmentForm({
     const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string }>()
     const [isSaving, setIsSaving] = useState(false)
     const [isSaved, setIsSaved] = useState(false)
-    const [photos, setPhotos] = useState<Array<{ id: string; photo: AssessmentPhotoInput }>>(() =>
+    const [photos, setPhotos] = useState<ReturnType<typeof initializeAssessmentPhotos>>(() =>
         initializeAssessmentPhotos(initialSubmission),
     )
     const [isProcessingPhotos, setIsProcessingPhotos] = useState(false)
     const [photoMessage, setPhotoMessage] = useState('')
     const photoInputRef = useRef<HTMLInputElement>(null)
+    const photoIdCounterRef = useRef(0)
     const mountedRef = useRef(true)
     const onSavingChangeRef = useRef(onSavingChange)
     onSavingChangeRef.current = onSavingChange
     const currentSection = ASSESSMENT_SECTIONS[step - 1]
     const reviewStep = ASSESSMENT_SECTIONS.length + 1
     const totalSteps = reviewStep + 1
-    const initialSnapshotRef = useRef(
-        JSON.stringify(
+    const initialSnapshotRef = useRef<string | undefined>(undefined)
+    if (initialSnapshotRef.current === undefined) {
+        initialSnapshotRef.current = createAssessmentDirtySnapshot(
             buildAssessmentSubmission(
-                initializeAssessmentDetails(initialSubmission),
-                initializeAssessmentResponses(initialSubmission),
-                initializeAssessmentPhotos(initialSubmission).map((item) => item.photo),
+                details,
+                responses,
+                photos.map((item) => item.photo),
             ),
-        ),
-    )
+            photos.map((item) => item.fingerprint),
+        )
+    }
 
     const answeredCount = useMemo(
         () => Object.values(responses).filter((response) => response.answer).length,
@@ -250,7 +265,10 @@ export function AssessmentForm({
             ),
         [details, responses, photos],
     )
-    const currentSnapshot = JSON.stringify(currentSubmission)
+    const currentSnapshot = createAssessmentDirtySnapshot(
+        currentSubmission,
+        photos.map((item) => item.fingerprint),
+    )
     const dirty = mode === 'edit' && currentSnapshot !== initialSnapshotRef.current
 
     useEffect(() => {
@@ -424,10 +442,10 @@ export function AssessmentForm({
                 const photo = await photoPreparer(file)
                 setPhotos((current) => [
                     ...current,
-                    {
-                        id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+                    createPhotoState(
+                        `new-${Date.now()}-${++photoIdCounterRef.current}-${index}-${file.name}`,
                         photo,
-                    },
+                    ),
                 ])
             } catch (error) {
                 photoErrors.push(
@@ -498,7 +516,7 @@ export function AssessmentForm({
             aria-label="Evaluación de alojamiento temporal"
             aria-busy={isSaving}
         >
-            <aside className="assessment-rail">
+            <aside className={`assessment-rail ${mode === 'edit' ? 'edit-step-navigation' : ''}`}>
                 <div className="rail-kicker">Formulario PGI</div>
                 <div
                     className="rail-progress"
@@ -526,7 +544,7 @@ export function AssessmentForm({
                     </button>
                     {ASSESSMENT_SECTIONS.map((section, index) => (
                         <button
-                            className={step === index + 1 ? 'current' : ''}
+                            className={`${step === index + 1 ? 'current' : ''} ${mode === 'edit' ? 'edit-step-link' : ''}`}
                             type="button"
                             key={section.key}
                             disabled={isSaving || (mode === 'create' && index + 1 > step)}

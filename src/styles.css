@@ -1874,6 +1874,45 @@ input[aria-invalid="true"] {
         display: none;
     }
 
+    .assessment-rail.edit-step-navigation {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        width: 100%;
+        max-width: 100vw;
+        overflow: hidden;
+        padding: 0.55rem 0;
+    }
+
+    .assessment-rail.edit-step-navigation .rail-kicker,
+    .assessment-rail.edit-step-navigation > p,
+    .assessment-rail.edit-step-navigation .rail-count {
+        display: none;
+    }
+
+    .assessment-rail.edit-step-navigation .rail-progress {
+        margin: 0 1rem 0.45rem;
+    }
+
+    .assessment-rail.edit-step-navigation nav {
+        display: flex;
+        width: 100%;
+        gap: 0.35rem;
+        overflow-x: auto;
+        padding: 0.1rem 1rem 0.35rem;
+        overscroll-behavior-x: contain;
+        scrollbar-width: thin;
+    }
+
+    .assessment-rail.edit-step-navigation nav button {
+        flex: 0 0 auto;
+        width: auto;
+        min-height: 44px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        padding: 0.55rem 0.85rem;
+        white-space: nowrap;
+    }
+
     .rail-kicker {
         margin-bottom: 0.75rem;
     }
