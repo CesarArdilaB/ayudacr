@@ -1,10 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     type AdminAssessment,
+    type AdminAssessmentUpdate,
+    type AdminEditableAssessment,
     downloadAdminAssessmentPdf,
     downloadAdminAssessmentsCsv,
+    getAdminAssessment,
+    listAdminAssessments,
     type NativeDownloadHandle,
+    updateAdminAssessment,
 } from '../lib/admin-api.js'
+import { AdminAssessmentEditor } from './AdminAssessmentEditor.js'
+
+export function normalizeRecordSearch(value: string): string {
+    return value
+        .trim()
+        .toLocaleLowerCase('es')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+}
 
 function messageFrom(error: unknown): string {
     return error instanceof Error
@@ -13,19 +27,33 @@ function messageFrom(error: unknown): string {
 }
 
 export function AdminRecords({
-    loadRecords,
+    loadRecords = listAdminAssessments,
     downloadPdf = downloadAdminAssessmentPdf,
     downloadCsv = downloadAdminAssessmentsCsv,
+    getAssessment = getAdminAssessment,
+    updateAssessment = updateAdminAssessment,
+    onEditingDirtyChange,
 }: {
-    loadRecords: () => Promise<{ records: AdminAssessment[] }>
+    loadRecords?: () => Promise<{ records: AdminAssessment[] }>
     downloadPdf?: (assessmentId: string, signal?: AbortSignal) => Promise<void>
     downloadCsv?: (signal?: AbortSignal) => Promise<NativeDownloadHandle | undefined>
+    getAssessment?: (
+        id: string,
+        signal?: AbortSignal,
+    ) => Promise<{ record: AdminEditableAssessment }>
+    updateAssessment?: (
+        id: string,
+        input: AdminAssessmentUpdate,
+    ) => Promise<{ id: string; revision: string }>
+    onEditingDirtyChange?: (dirty: boolean) => void
 }) {
     const [records, setRecords] = useState<AdminAssessment[]>([])
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
     const [pendingPdfIds, setPendingPdfIds] = useState<Set<string>>(() => new Set())
     const [csvPending, setCsvPending] = useState(false)
     const [csvAuthorized, setCsvAuthorized] = useState(false)
+    const [query, setQuery] = useState('')
+    const [selectedId, setSelectedId] = useState<string>()
     const [downloadNotice, setDownloadNotice] = useState<{
         kind: 'success' | 'error'
         message: string
@@ -36,6 +64,26 @@ export function AdminRecords({
     const csvHandlesRef = useRef(new Set<NativeDownloadHandle>())
     const csvLockRef = useRef(false)
     const csvLockTimerRef = useRef<number | undefined>(undefined)
+    const loadRequestRef = useRef(0)
+
+    const filteredRecords = useMemo(() => {
+        const tokens = normalizeRecordSearch(query).split(/\s+/).filter(Boolean)
+        if (tokens.length === 0) return records
+        return records.filter((record) => {
+            const haystack = normalizeRecordSearch(
+                [
+                    record.institution,
+                    record.municipality,
+                    record.department,
+                    record.visitDate,
+                    record.createdBy.name,
+                    record.createdBy.email,
+                    record.id,
+                ].join(' '),
+            )
+            return tokens.every((token) => haystack.includes(token))
+        })
+    }, [query, records])
 
     useEffect(() => {
         mountedRef.current = true
@@ -52,22 +100,50 @@ export function AdminRecords({
         }
     }, [])
 
-    useEffect(() => {
-        let active = true
+    const refreshRecords = useCallback(() => {
+        const request = ++loadRequestRef.current
         setStatus('loading')
         void loadRecords()
             .then((result) => {
-                if (!active) return
+                if (request !== loadRequestRef.current) return
                 setRecords(result.records)
                 setStatus('ready')
             })
             .catch(() => {
-                if (active) setStatus('error')
+                if (request === loadRequestRef.current) setStatus('error')
             })
-        return () => {
-            active = false
-        }
     }, [loadRecords])
+
+    useEffect(() => {
+        refreshRecords()
+        return () => {
+            loadRequestRef.current += 1
+        }
+    }, [refreshRecords])
+
+    if (selectedId) {
+        return (
+            <AdminAssessmentEditor
+                assessmentId={selectedId}
+                getAssessment={getAssessment}
+                updateAssessment={updateAssessment}
+                onDirtyChange={(dirty) => onEditingDirtyChange?.(dirty)}
+                onCancel={() => {
+                    onEditingDirtyChange?.(false)
+                    setSelectedId(undefined)
+                }}
+                onSaved={() => {
+                    onEditingDirtyChange?.(false)
+                    setSelectedId(undefined)
+                    setDownloadNotice({
+                        kind: 'success',
+                        message: 'Evaluación actualizada correctamente.',
+                    })
+                    refreshRecords()
+                }}
+            />
+        )
+    }
 
     async function handlePdfDownload(record: AdminAssessment) {
         if (pendingPdfIdsRef.current.has(record.id)) return
@@ -174,6 +250,27 @@ export function AdminRecords({
                 </p>
             )}
 
+            {status === 'ready' && records.length > 0 && (
+                <div className="records-search">
+                    <label htmlFor="records-search-input">Buscar registros</label>
+                    <div>
+                        <input
+                            id="records-search-input"
+                            type="search"
+                            value={query}
+                            placeholder="Albergue, municipio, fecha, evaluador o ID"
+                            onChange={(event) => setQuery(event.target.value)}
+                        />
+                        <button type="button" onClick={() => setQuery('')} disabled={!query}>
+                            Limpiar búsqueda
+                        </button>
+                    </div>
+                    <p aria-live="polite">
+                        {filteredRecords.length} / {records.length} registros
+                    </p>
+                </div>
+            )}
+
             {status === 'loading' && <p role="status">Cargando registros…</p>}
             {status === 'error' && (
                 <p className="server-error" role="alert">
@@ -187,7 +284,13 @@ export function AdminRecords({
                     <p>Los formularios enviados aparecerán aquí.</p>
                 </div>
             )}
-            {status === 'ready' && records.length > 0 && (
+            {status === 'ready' && records.length > 0 && filteredRecords.length === 0 && (
+                <div className="admin-empty">
+                    <h2>Sin coincidencias</h2>
+                    <p>Probá con otros términos de búsqueda.</p>
+                </div>
+            )}
+            {status === 'ready' && filteredRecords.length > 0 && (
                 <div className="records-table-wrap">
                     <table className="records-table">
                         <thead>
@@ -201,7 +304,7 @@ export function AdminRecords({
                             </tr>
                         </thead>
                         <tbody>
-                            {records.map((record) => (
+                            {filteredRecords.map((record) => (
                                 <tr key={record.id}>
                                     <td data-label="Albergue">
                                         <strong>{record.institution}</strong>
@@ -222,6 +325,14 @@ export function AdminRecords({
                                         </span>
                                     </td>
                                     <td data-label="Descarga">
+                                        <button
+                                            className="record-edit-button"
+                                            type="button"
+                                            aria-label={`Editar ${record.institution}`}
+                                            onClick={() => setSelectedId(record.id)}
+                                        >
+                                            Editar
+                                        </button>
                                         <button
                                             className="record-download-button"
                                             type="button"

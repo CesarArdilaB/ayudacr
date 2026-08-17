@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { ASSESSMENT_CRITERIA } from '../shared/assessment.js'
 import { type AdminService, App, type AuthService } from './App'
 
 function createAuthService(overrides: Partial<AuthService> = {}): AuthService {
@@ -19,11 +20,78 @@ function createAdminService(overrides: Partial<AdminService> = {}): AdminService
         createUser: vi.fn(),
         updatePassword: vi.fn(),
         promoteUser: vi.fn(),
+        getAssessment: vi.fn(),
+        updateAssessment: vi.fn(),
         ...overrides,
     }
 }
 
 describe('App', () => {
+    it('warns before leaving a dirty record edit or signing out', async () => {
+        const user = userEvent.setup()
+        const signOut = vi.fn().mockResolvedValue({})
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        const summary = {
+            id: 'record-1',
+            institution: 'Coliseo',
+            visitDate: '2026-08-10',
+            municipality: 'CALI',
+            department: 'VALLE DEL CAUCA',
+            createdAt: '',
+            createdBy: { name: 'Ana', email: 'ana@example.com' },
+            responseCount: 44,
+        }
+        const editable = {
+            id: summary.id,
+            revision: 'r1',
+            formVersion: '2026-08-10',
+            createdAt: '',
+            createdBy: summary.createdBy,
+            assessment: {
+                institution: 'Coliseo',
+                visitDate: '2026-08-10',
+                municipality: 'CALI',
+                department: 'VALLE DEL CAUCA',
+                contactName: 'Ana',
+                contactRole: '',
+                phone: '',
+                email: '',
+                protectionRiskDetails: '',
+                generalObservations: '',
+                visitors: [],
+                photos: [],
+                responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+                    criterionKey: criterion.key,
+                    answer: 'yes' as const,
+                    comments: '',
+                    quantities: {},
+                })),
+            },
+        }
+        const authService = createAuthService({
+            useSession: () => ({
+                data: { user: { name: 'Admin', email: 'admin@example.com', role: 'super_admin' } },
+                isPending: false,
+            }),
+            signOut,
+        })
+        const adminService = createAdminService({
+            listAssessments: vi.fn().mockResolvedValue({ records: [summary] }),
+            getAssessment: vi.fn().mockResolvedValue({ record: editable }),
+            updateAssessment: vi.fn(),
+        } as never)
+        render(<App authService={authService} adminService={adminService} />)
+        await user.click(screen.getByRole('button', { name: 'Registros' }))
+        await user.click(await screen.findByRole('button', { name: 'Editar Coliseo' }))
+        const institution = await screen.findByLabelText('Institución visitada')
+        await user.type(institution, ' modificado')
+        await user.click(screen.getByRole('button', { name: 'Usuarios' }))
+        expect(confirm).toHaveBeenCalledOnce()
+        expect(screen.getByRole('heading', { name: 'Editar evaluación' })).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+        expect(confirm).toHaveBeenCalledTimes(2)
+        expect(signOut).not.toHaveBeenCalled()
+    })
     it('shows the sign-in journey to a signed-out visitor', () => {
         render(<App authService={createAuthService()} />)
 

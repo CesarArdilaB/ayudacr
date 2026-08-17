@@ -1441,6 +1441,90 @@ input[aria-invalid="true"] {
     min-width: 13rem;
 }
 
+.records-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.55rem 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.records-search > label {
+    grid-column: 1 / -1;
+    color: var(--ink);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.records-search > div {
+    display: flex;
+    min-width: 0;
+}
+
+.records-search input {
+    width: min(100%, 46rem);
+    min-height: 3rem;
+    border: 1px solid var(--ink);
+    padding: 0.7rem 0.9rem;
+    color: var(--ink);
+    background: white;
+    font: inherit;
+}
+
+.records-search button,
+.record-edit-button {
+    min-height: 2.75rem;
+    border: 1px solid var(--ink);
+    padding: 0.7rem 1rem;
+    color: var(--ink);
+    background: var(--sun);
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 850;
+    cursor: pointer;
+}
+
+.records-search > div > button:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+.records-search > p {
+    align-self: center;
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+.record-edit-button {
+    width: 100%;
+    margin-bottom: 0.45rem;
+}
+
+.assessment-edit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1.25rem;
+}
+
+.assessment-edit-header h1 {
+    margin: 0.25rem 0 0;
+    font-family: "Fraunces Variable", serif;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 500;
+}
+.assessment-edit-header p {
+    margin: 0;
+}
+.editor-state-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
 .records-download-all,
 .record-download-button {
     min-height: 2.75rem;
@@ -1907,6 +1991,33 @@ input[aria-invalid="true"] {
 
     .records-download-all {
         width: 100%;
+    }
+
+    .records-search {
+        grid-template-columns: 1fr;
+    }
+    .records-search > div {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+    .records-search input,
+    .records-search button,
+    .record-edit-button,
+    .record-download-button {
+        min-height: 44px;
+        width: 100%;
+    }
+    .assessment-edit-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .assessment-edit-header .assessment-secondary {
+        min-height: 44px;
+    }
+    .editor-state-actions {
+        align-items: stretch;
+        flex-direction: column;
     }
 
     .records-table-wrap {

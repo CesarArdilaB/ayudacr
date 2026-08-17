@@ -1,4 +1,4 @@
-import { type ChangeEvent, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ASSESSMENT_CRITERIA,
     ASSESSMENT_SECTIONS,
@@ -46,6 +46,65 @@ const emptyDetails: AssessmentDetails = {
     protectionRiskDetails: '',
     generalObservations: '',
     visitorsText: '',
+}
+
+export function initializeAssessmentDetails(initial?: AssessmentSubmission): AssessmentDetails {
+    if (!initial) return { ...emptyDetails }
+    const { responses: _responses, visitors, photos: _photos, ...details } = initial
+    return { ...details, visitorsText: visitors.join('\n') }
+}
+
+export function initializeAssessmentResponses(initial?: AssessmentSubmission): ResponseState {
+    return Object.fromEntries(
+        (initial?.responses ?? []).map((response) => [
+            response.criterionKey,
+            {
+                answer: response.answer,
+                comments: response.comments,
+                quantities: Object.fromEntries(
+                    Object.entries(response.quantities).map(([key, value]) => [key, String(value)]),
+                ),
+            },
+        ]),
+    )
+}
+
+export function initializeAssessmentPhotos(initial?: AssessmentSubmission) {
+    return (initial?.photos ?? []).map((photo, index) => ({ id: `stored-${index}`, photo }))
+}
+
+function buildAssessmentSubmission(
+    details: AssessmentDetails,
+    responses: ResponseState,
+    photos: AssessmentPhotoInput[],
+): AssessmentSubmission {
+    return {
+        institution: details.institution,
+        visitDate: details.visitDate,
+        municipality: details.municipality,
+        department: details.department,
+        contactName: details.contactName,
+        contactRole: details.contactRole,
+        phone: details.phone,
+        email: details.email,
+        protectionRiskDetails: details.protectionRiskDetails,
+        generalObservations: details.generalObservations,
+        visitors: details.visitorsText
+            .split(/\n|,/)
+            .map((visitor) => visitor.trim())
+            .filter(Boolean),
+        photos,
+        responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+            criterionKey: criterion.key,
+            answer: responses[criterion.key]?.answer as AssessmentAnswer,
+            comments: responses[criterion.key]?.comments ?? '',
+            quantities: Object.fromEntries(
+                Object.entries(responses[criterion.key]?.quantities ?? {})
+                    .filter(([, value]) => value !== '')
+                    .map(([key, value]) => [key, Number(value)]),
+            ),
+        })),
+    }
 }
 
 function Field({
@@ -132,28 +191,73 @@ function SelectField({
 export function AssessmentForm({
     onSubmit,
     photoPreparer = prepareAssessmentPhoto,
+    mode = 'create',
+    initialSubmission,
+    onCancel,
+    onSaved,
+    onDirtyChange,
 }: {
     onSubmit: (submission: AssessmentSubmission) => Promise<{ id: string }>
     photoPreparer?: (file: File) => Promise<AssessmentPhotoInput>
+    mode?: 'create' | 'edit'
+    initialSubmission?: AssessmentSubmission
+    onCancel?: () => void
+    onSaved?: (result: { id: string }) => void
+    onDirtyChange?: (dirty: boolean) => void
 }) {
     const [step, setStep] = useState(0)
-    const [details, setDetails] = useState(emptyDetails)
-    const [responses, setResponses] = useState<ResponseState>({})
+    const [details, setDetails] = useState(() => initializeAssessmentDetails(initialSubmission))
+    const [responses, setResponses] = useState<ResponseState>(() =>
+        initializeAssessmentResponses(initialSubmission),
+    )
     const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string }>()
     const [isSaving, setIsSaving] = useState(false)
     const [isSaved, setIsSaved] = useState(false)
-    const [photos, setPhotos] = useState<Array<{ id: string; photo: AssessmentPhotoInput }>>([])
+    const [photos, setPhotos] = useState<Array<{ id: string; photo: AssessmentPhotoInput }>>(() =>
+        initializeAssessmentPhotos(initialSubmission),
+    )
     const [isProcessingPhotos, setIsProcessingPhotos] = useState(false)
     const [photoMessage, setPhotoMessage] = useState('')
     const photoInputRef = useRef<HTMLInputElement>(null)
     const currentSection = ASSESSMENT_SECTIONS[step - 1]
     const reviewStep = ASSESSMENT_SECTIONS.length + 1
     const totalSteps = reviewStep + 1
+    const initialSnapshotRef = useRef(
+        JSON.stringify(
+            buildAssessmentSubmission(
+                initializeAssessmentDetails(initialSubmission),
+                initializeAssessmentResponses(initialSubmission),
+                initializeAssessmentPhotos(initialSubmission).map((item) => item.photo),
+            ),
+        ),
+    )
 
     const answeredCount = useMemo(
         () => Object.values(responses).filter((response) => response.answer).length,
         [responses],
     )
+    const currentSubmission = useMemo(
+        () =>
+            buildAssessmentSubmission(
+                details,
+                responses,
+                photos.map((item) => item.photo),
+            ),
+        [details, responses, photos],
+    )
+    const currentSnapshot = JSON.stringify(currentSubmission)
+    const dirty = mode === 'edit' && currentSnapshot !== initialSnapshotRef.current
+
+    useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+    useEffect(() => {
+        if (!dirty) return
+        const warn = (event: BeforeUnloadEvent) => {
+            event.preventDefault()
+            event.returnValue = ''
+        }
+        window.addEventListener('beforeunload', warn)
+        return () => window.removeEventListener('beforeunload', warn)
+    }, [dirty])
 
     function updateDetails(name: keyof AssessmentDetails, value: string) {
         setDetails((current) => ({
@@ -273,33 +377,7 @@ export function AssessmentForm({
     }
 
     function buildSubmission(): AssessmentSubmission {
-        return {
-            institution: details.institution,
-            visitDate: details.visitDate,
-            municipality: details.municipality,
-            department: details.department,
-            contactName: details.contactName,
-            contactRole: details.contactRole,
-            phone: details.phone,
-            email: details.email,
-            protectionRiskDetails: details.protectionRiskDetails,
-            generalObservations: details.generalObservations,
-            visitors: details.visitorsText
-                .split(/\n|,/)
-                .map((visitor) => visitor.trim())
-                .filter(Boolean),
-            photos: photos.map((item) => item.photo),
-            responses: ASSESSMENT_CRITERIA.map((criterion) => ({
-                criterionKey: criterion.key,
-                answer: responses[criterion.key]?.answer as AssessmentAnswer,
-                comments: responses[criterion.key]?.comments ?? '',
-                quantities: Object.fromEntries(
-                    Object.entries(responses[criterion.key]?.quantities ?? {})
-                        .filter(([, value]) => value !== '')
-                        .map(([key, value]) => [key, Number(value)]),
-                ),
-            })),
-        }
+        return currentSubmission
     }
 
     async function addPhotos(event: ChangeEvent<HTMLInputElement>) {
@@ -363,6 +441,9 @@ export function AssessmentForm({
                 text: `Evaluación guardada. Registro ${result.id.slice(0, 8)}.`,
             })
             setIsSaved(true)
+            initialSnapshotRef.current = currentSnapshot
+            onDirtyChange?.(false)
+            onSaved?.(result)
         } catch (error) {
             setMessage({
                 type: 'error',
@@ -375,6 +456,12 @@ export function AssessmentForm({
             setIsSaving(false)
             window.scrollTo({ top: 0, behavior: 'smooth' })
         }
+    }
+
+    function cancelEditing() {
+        if (dirty && !window.confirm('Hay cambios sin guardar. ¿Querés salir de la edición?'))
+            return
+        onCancel?.()
     }
 
     return (
@@ -407,13 +494,18 @@ export function AssessmentForm({
                             className={step === index + 1 ? 'current' : ''}
                             type="button"
                             key={section.key}
-                            disabled={index + 1 > step}
+                            disabled={mode === 'create' && index + 1 > step}
                             onClick={() => setStep(index + 1)}
                         >
                             {section.title}
                         </button>
                     ))}
-                    <button className={step === reviewStep ? 'current' : ''} type="button" disabled>
+                    <button
+                        className={step === reviewStep ? 'current' : ''}
+                        type="button"
+                        disabled={mode === 'create'}
+                        onClick={() => setStep(reviewStep)}
+                    >
                         Revisión final
                     </button>
                 </nav>
@@ -424,6 +516,21 @@ export function AssessmentForm({
             </aside>
 
             <div className="assessment-content">
+                {mode === 'edit' && (
+                    <header className="assessment-edit-header">
+                        <div>
+                            <p className="eyebrow">Administración</p>
+                            <h1>Editar evaluación</h1>
+                        </div>
+                        <button
+                            type="button"
+                            className="assessment-secondary"
+                            onClick={cancelEditing}
+                        >
+                            Cancelar edición
+                        </button>
+                    </header>
+                )}
                 {message && (
                     <div
                         className={`assessment-message ${message.type}`}
@@ -528,7 +635,10 @@ export function AssessmentForm({
                                 type="button"
                                 onClick={advanceFromDetails}
                             >
-                                Comenzar evaluación <span aria-hidden="true">→</span>
+                                {mode === 'edit'
+                                    ? 'Continuar con criterios'
+                                    : 'Comenzar evaluación'}{' '}
+                                <span aria-hidden="true">→</span>
                             </button>
                         </div>
                     </div>
@@ -814,8 +924,12 @@ export function AssessmentForm({
                                 {isSaving
                                     ? 'Guardando…'
                                     : isSaved
-                                      ? 'Evaluación guardada'
-                                      : 'Guardar evaluación'}
+                                      ? mode === 'edit'
+                                          ? 'Cambios guardados'
+                                          : 'Evaluación guardada'
+                                      : mode === 'edit'
+                                        ? 'Guardar cambios'
+                                        : 'Guardar evaluación'}
                                 <span aria-hidden="true">✓</span>
                             </button>
                         </div>

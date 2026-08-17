@@ -1,3 +1,5 @@
+import type { AssessmentSubmission } from '../../shared/assessment.js'
+
 export type AdminAssessment = {
     id: string
     institution: string
@@ -7,6 +9,19 @@ export type AdminAssessment = {
     createdAt: string
     createdBy: { name: string; email: string }
     responseCount: number
+}
+
+export type AdminEditableAssessment = {
+    id: string
+    formVersion: string
+    revision: string
+    createdAt: string
+    createdBy: { name: string; email: string }
+    assessment: AssessmentSubmission
+}
+
+export type AdminAssessmentUpdate = Pick<AdminEditableAssessment, 'revision' | 'formVersion'> & {
+    assessment: AssessmentSubmission
 }
 
 export type AdminUser = {
@@ -35,6 +50,71 @@ export async function listAdminAssessments(): Promise<{ records: AdminAssessment
         await fetch('/api/admin/assessments', {
             credentials: 'include',
             headers: { accept: 'application/json' },
+        }),
+    )
+}
+
+const EDIT_ERROR_BY_STATUS: Partial<Record<number, string>> = {
+    400: 'Revisá los datos de la evaluación e intentá nuevamente.',
+    401: 'Tu sesión expiró. Ingresá nuevamente.',
+    403: 'No tenés permisos para editar evaluaciones.',
+    404: 'No se encontró la evaluación solicitada.',
+    409: 'La evaluación cambió o no admite edición. Recargá el registro e intentá nuevamente.',
+    500: 'No fue posible guardar la evaluación. Intentá nuevamente.',
+}
+
+async function parseEditResponse<T>(response: Response): Promise<T> {
+    let body: (T & { error?: string }) | undefined
+    try {
+        body = (await response.json()) as T & { error?: string }
+    } catch {
+        throw new Error('El servidor respondió de forma inesperada. Intentá nuevamente.')
+    }
+    if (!response.ok) {
+        throw new Error(
+            EDIT_ERROR_BY_STATUS[response.status] ||
+                'No fue posible guardar la evaluación. Intentá nuevamente.',
+        )
+    }
+    return body
+}
+
+export async function getAdminAssessment(
+    assessmentId: string,
+    signal?: AbortSignal,
+): Promise<{ record: AdminEditableAssessment }> {
+    const result = await parseEditResponse<{ record: AdminEditableAssessment }>(
+        await fetch(`/api/admin/assessments/${encodeURIComponent(assessmentId)}`, {
+            credentials: 'include',
+            headers: { accept: 'application/json' },
+            ...(signal ? { signal } : {}),
+        }),
+    )
+    return {
+        record: {
+            ...result.record,
+            assessment: {
+                ...result.record.assessment,
+                photos: result.record.assessment.photos.map(({ data, mimeType, size }) => ({
+                    data,
+                    mimeType,
+                    size,
+                })),
+            },
+        },
+    }
+}
+
+export async function updateAdminAssessment(
+    assessmentId: string,
+    input: AdminAssessmentUpdate,
+): Promise<{ id: string; revision: string }> {
+    return parseEditResponse(
+        await fetch(`/api/admin/assessments/${encodeURIComponent(assessmentId)}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify(input),
         }),
     )
 }

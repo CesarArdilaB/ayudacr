@@ -4,11 +4,15 @@ import { AdminUsers } from './components/AdminUsers'
 import { AssessmentForm } from './components/AssessmentForm'
 import {
     type AdminAssessment,
+    type AdminAssessmentUpdate,
+    type AdminEditableAssessment,
     type AdminUser,
     createEvaluator,
+    getAdminAssessment,
     listAdminAssessments,
     listAdminUsers,
     promoteAdminUser,
+    updateAdminAssessment,
     updateAdminUserPassword,
 } from './lib/admin-api'
 import { postAssessment } from './lib/assessment-api'
@@ -45,6 +49,14 @@ export type AdminService = {
     }) => Promise<{ user: AdminUser }>
     updatePassword: (userId: string, password: string) => Promise<{ success: true }>
     promoteUser: (userId: string) => Promise<{ user: AdminUser }>
+    getAssessment: (
+        id: string,
+        signal?: AbortSignal,
+    ) => Promise<{ record: AdminEditableAssessment }>
+    updateAssessment: (
+        id: string,
+        input: AdminAssessmentUpdate,
+    ) => Promise<{ id: string; revision: string }>
 }
 
 const defaultAuthService: AuthService = {
@@ -62,6 +74,8 @@ const defaultAdminService: AdminService = {
     createUser: createEvaluator,
     updatePassword: updateAdminUserPassword,
     promoteUser: promoteAdminUser,
+    getAssessment: getAdminAssessment,
+    updateAssessment: updateAdminAssessment,
 }
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -102,7 +116,26 @@ function Dashboard({
     session: SessionData
 }) {
     const [view, setView] = useState<'assessment' | 'records' | 'users'>('assessment')
+    const [editingDirty, setEditingDirty] = useState(false)
     const isSuperAdmin = session?.user.role === 'super_admin'
+
+    function confirmLeaveEditing(): boolean {
+        return (
+            !editingDirty || window.confirm('Hay cambios sin guardar. ¿Querés salir de la edición?')
+        )
+    }
+
+    function navigate(next: typeof view) {
+        if (next === view || !confirmLeaveEditing()) return
+        setEditingDirty(false)
+        setView(next)
+    }
+
+    function signOut() {
+        if (!confirmLeaveEditing()) return
+        setEditingDirty(false)
+        void authService.signOut()
+    }
 
     return (
         <main className="response-dashboard">
@@ -113,11 +146,7 @@ function Dashboard({
                 </div>
                 <div className="member-menu">
                     <span>{session?.user.email}</span>
-                    <button
-                        className="text-button"
-                        type="button"
-                        onClick={() => authService.signOut()}
-                    >
+                    <button className="text-button" type="button" onClick={signOut}>
                         Cerrar sesión
                     </button>
                 </div>
@@ -127,21 +156,21 @@ function Dashboard({
                     <button
                         className={view === 'assessment' ? 'active' : ''}
                         type="button"
-                        onClick={() => setView('assessment')}
+                        onClick={() => navigate('assessment')}
                     >
                         Nueva evaluación
                     </button>
                     <button
                         className={view === 'records' ? 'active' : ''}
                         type="button"
-                        onClick={() => setView('records')}
+                        onClick={() => navigate('records')}
                     >
                         Registros
                     </button>
                     <button
                         className={view === 'users' ? 'active' : ''}
                         type="button"
-                        onClick={() => setView('users')}
+                        onClick={() => navigate('users')}
                     >
                         Usuarios
                     </button>
@@ -149,7 +178,12 @@ function Dashboard({
             )}
             {view === 'assessment' && <AssessmentForm onSubmit={postAssessment} />}
             {isSuperAdmin && view === 'records' && (
-                <AdminRecords loadRecords={adminService.listAssessments} />
+                <AdminRecords
+                    loadRecords={adminService.listAssessments}
+                    getAssessment={adminService.getAssessment}
+                    updateAssessment={adminService.updateAssessment}
+                    onEditingDirtyChange={setEditingDirty}
+                />
             )}
             {isSuperAdmin && view === 'users' && (
                 <AdminUsers

@@ -1,8 +1,31 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { AssessmentSubmission } from '../../shared/assessment.js'
+import { ASSESSMENT_CRITERIA, type AssessmentSubmission } from '../../shared/assessment.js'
 import { AssessmentForm } from './AssessmentForm'
+
+function emptyCompleteSubmission(): AssessmentSubmission {
+    return {
+        institution: 'Albergue',
+        visitDate: '2026-08-10',
+        municipality: 'CALI',
+        department: 'VALLE DEL CAUCA',
+        contactName: 'Contacto',
+        contactRole: '',
+        phone: '',
+        email: '',
+        protectionRiskDetails: '',
+        generalObservations: '',
+        visitors: [],
+        photos: [],
+        responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+            criterionKey: criterion.key,
+            answer: 'yes',
+            comments: '',
+            quantities: {},
+        })),
+    }
+}
 
 async function completeAssessment(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('Institución visitada'), 'Coliseo El Pueblo')
@@ -47,6 +70,96 @@ async function completeAssessment(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('AssessmentForm', () => {
+    it('initializes every editable field and allows direct section navigation', async () => {
+        const user = userEvent.setup()
+        const initialSubmission: AssessmentSubmission = {
+            institution: 'Albergue Éxito',
+            visitDate: '2026-08-10',
+            municipality: 'CALI',
+            department: 'VALLE DEL CAUCA',
+            contactName: 'Natalia',
+            contactRole: 'Líder',
+            phone: '300',
+            email: 'natalia@example.com',
+            protectionRiskDetails: 'Riesgo',
+            generalObservations: 'Observación',
+            visitors: ['Ana', 'Luis'],
+            photos: [{ data: '/9j/AAAA/9k=', mimeType: 'image/jpeg', size: 8 }],
+            responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+                criterionKey: criterion.key,
+                answer: 'yes' as const,
+                comments: `Nota ${criterion.key}`,
+                quantities: Object.fromEntries(
+                    (criterion.quantityFields ?? []).map((field) => [field.key, 7]),
+                ),
+            })),
+        }
+        render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={initialSubmission}
+                onSubmit={async () => ({ id: '1' })}
+            />,
+        )
+
+        expect(screen.getByRole('heading', { name: 'Editar evaluación' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Institución visitada')).toHaveValue('Albergue Éxito')
+        expect(screen.getByText('44', { selector: '.rail-count strong' })).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Participación' }))
+        expect(screen.getByRole('heading', { name: 'Participación' })).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        expect(screen.getByAltText('Evidencia fotográfica 1')).toBeInTheDocument()
+    })
+
+    it('warns only when cancelling a dirty edit and clears dirty before success callback', async () => {
+        const user = userEvent.setup()
+        const onCancel = vi.fn()
+        const onSaved = vi.fn()
+        const onDirtyChange = vi.fn()
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={{ ...emptyCompleteSubmission(), institution: 'Original' }}
+                onSubmit={async () => ({ id: '1' })}
+                onCancel={onCancel}
+                onSaved={onSaved}
+                onDirtyChange={onDirtyChange}
+            />,
+        )
+
+        await user.click(screen.getByRole('button', { name: 'Cancelar edición' }))
+        expect(confirm).not.toHaveBeenCalled()
+        expect(onCancel).toHaveBeenCalledOnce()
+        onCancel.mockClear()
+        await user.type(screen.getByLabelText('Institución visitada'), ' cambio')
+        await user.click(screen.getByRole('button', { name: 'Cancelar edición' }))
+        expect(confirm).toHaveBeenCalledOnce()
+        expect(onCancel).not.toHaveBeenCalled()
+
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+        expect(onSaved).toHaveBeenCalledOnce()
+        expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    })
+
+    it('registers beforeunload protection only while an edit is dirty', async () => {
+        const user = userEvent.setup()
+        render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={emptyCompleteSubmission()}
+                onSubmit={async () => ({ id: '1' })}
+            />,
+        )
+        const cleanEvent = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(cleanEvent)
+        expect(cleanEvent.defaultPrevented).toBe(false)
+        await user.type(screen.getByLabelText('Institución visitada'), ' cambio')
+        const dirtyEvent = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(dirtyEvent)
+        expect(dirtyEvent.defaultPrevented).toBe(true)
+    })
     it('starts with the shelter and visit identification fields', () => {
         render(<AssessmentForm onSubmit={async () => ({ id: 'assessment-1' })} />)
 

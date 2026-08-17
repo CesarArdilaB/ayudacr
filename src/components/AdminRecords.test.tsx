@@ -24,6 +24,51 @@ function services(records = [record]) {
 }
 
 describe('AdminRecords exports', () => {
+    it('searches accent-insensitively with every token across fields and preserves the query after cancel', async () => {
+        const user = userEvent.setup()
+        const props = services([
+            record,
+            {
+                ...record,
+                id: 'abcd-1234-full',
+                institution: 'Éxito Norte',
+                municipality: 'Medellín',
+                department: 'Antioquia',
+                visitDate: '2026-08-10',
+                createdBy: { name: 'José Pérez', email: 'jose@example.com' },
+            },
+        ])
+        render(<AdminRecords {...props} getAssessment={vi.fn()} updateAssessment={vi.fn()} />)
+        const search = await screen.findByRole('searchbox', { name: 'Buscar registros' })
+        await user.type(search, 'medellin jose 2026-08-10')
+        expect(screen.getByText('1 / 2 registros')).toBeInTheDocument()
+        expect(screen.getByText('Éxito Norte')).toBeInTheDocument()
+        expect(screen.queryByText('Coliseo Central')).not.toBeInTheDocument()
+        await user.clear(search)
+        await user.type(search, 'abcd-1234-full')
+        expect(screen.getByText('Éxito Norte')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }))
+        expect(search).toHaveValue('')
+        expect(screen.getByText('2 / 2 registros')).toBeInTheDocument()
+    })
+
+    it('opens the editor from a row and returns to the same filtered list on cancel', async () => {
+        const user = userEvent.setup()
+        const props = services()
+        render(
+            <AdminRecords
+                {...props}
+                getAssessment={vi.fn().mockReturnValue(new Promise(() => {}))}
+                updateAssessment={vi.fn()}
+            />,
+        )
+        await screen.findByText('Coliseo Central')
+        await user.type(screen.getByRole('searchbox', { name: 'Buscar registros' }), 'coliseo')
+        await user.click(screen.getByRole('button', { name: 'Editar Coliseo Central' }))
+        expect(await screen.findByText('Cargando evaluación…')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Volver a registros' }))
+        expect(screen.getByRole('searchbox', { name: 'Buscar registros' })).toHaveValue('coliseo')
+    })
     it('offers the global CSV and one PDF action per ready record', async () => {
         const props = services()
         render(<AdminRecords {...props} />)

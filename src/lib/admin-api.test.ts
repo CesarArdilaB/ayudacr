@@ -18,6 +18,77 @@ const { downloadAdminAssessmentPdf, downloadAdminAssessmentsCsv } = adminApi as 
     downloadAdminAssessmentsCsv: () => Promise<void>
 }
 
+describe('admin assessment editing API', () => {
+    it('loads an encoded record with credentials and an abort signal', async () => {
+        const controller = new AbortController()
+        const fetcher = vi.fn().mockImplementation(() =>
+            respond({
+                record: {
+                    id: 'record/1',
+                    assessment: {
+                        photos: [{ position: 0, data: '/9j/', mimeType: 'image/jpeg', size: 3 }],
+                    },
+                },
+            }),
+        )
+        vi.stubGlobal('fetch', fetcher)
+
+        const result = await adminApi.getAdminAssessment('record/1', controller.signal)
+
+        expect(fetcher).toHaveBeenCalledWith('/api/admin/assessments/record%2F1', {
+            credentials: 'include',
+            headers: { accept: 'application/json' },
+            signal: controller.signal,
+        })
+        expect(result.record.assessment.photos).toEqual([
+            { data: '/9j/', mimeType: 'image/jpeg', size: 3 },
+        ])
+    })
+
+    it('updates with the exact revision envelope', async () => {
+        const fetcher = vi
+            .fn()
+            .mockImplementation(() => respond({ id: 'record-1', revision: 'r2' }))
+        vi.stubGlobal('fetch', fetcher)
+        const assessment = { institution: 'Albergue' } as never
+
+        await adminApi.updateAdminAssessment('record-1', {
+            revision: 'r1',
+            formVersion: '2026-08-10',
+            assessment,
+        })
+
+        expect(fetcher).toHaveBeenCalledWith('/api/admin/assessments/record-1', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ revision: 'r1', formVersion: '2026-08-10', assessment }),
+        })
+    })
+
+    it.each([
+        [400, 'Revisá los datos de la evaluación e intentá nuevamente.'],
+        [401, 'Tu sesión expiró. Ingresá nuevamente.'],
+        [403, 'No tenés permisos para editar evaluaciones.'],
+        [404, 'No se encontró la evaluación solicitada.'],
+        [
+            409,
+            'La evaluación cambió o no admite edición. Recargá el registro e intentá nuevamente.',
+        ],
+        [500, 'No fue posible guardar la evaluación. Intentá nuevamente.'],
+    ])('maps edit status %s to actionable Spanish', async (status, message) => {
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValue(
+                    new Response('{}', { status, headers: { 'content-type': 'application/json' } }),
+                ),
+        )
+        await expect(adminApi.getAdminAssessment('record-1')).rejects.toThrow(message)
+    })
+})
+
 afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
