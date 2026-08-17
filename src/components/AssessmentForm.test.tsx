@@ -117,13 +117,11 @@ describe('AssessmentForm', () => {
                 mode="edit"
                 initialSubmission={emptyCompleteSubmission()}
                 onDirtyChange={onDirtyChange}
-                photoPreparer={vi
-                    .fn()
-                    .mockResolvedValue({
-                        data: `UNSERIALIZED-${'A'.repeat(100_000)}`,
-                        mimeType: 'image/jpeg',
-                        size: 100_013,
-                    })}
+                photoPreparer={vi.fn().mockResolvedValue({
+                    data: `UNSERIALIZED-${'A'.repeat(100_000)}`,
+                    mimeType: 'image/jpeg',
+                    size: 100_013,
+                })}
                 onSubmit={async () => ({ id: '1' })}
             />,
         )
