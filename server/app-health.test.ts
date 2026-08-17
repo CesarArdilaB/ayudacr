@@ -1,6 +1,11 @@
 import type { Server } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ASSESSMENT_CRITERIA } from '../shared/assessment.js'
+import {
+    type AdminAssessmentRepository,
+    type AdminSessionResolver,
+    CURRENT_ASSESSMENT_FORM_VERSION,
+} from './admin.js'
 import { createApp } from './app.js'
 
 describe('API readiness', () => {
@@ -109,7 +114,126 @@ describe('API readiness', () => {
         expect(response.status).toBe(413)
         expect(await response.json()).toEqual({ error: 'Assessment payload is too large' })
     })
+
+    it.each([
+        ['signed out', async () => null, 401],
+        ['evaluator', async () => ({ user: { id: 'user-1', role: 'evaluator' as const } }), 403],
+    ])('authenticates a %s admin edit before parsing its body', async (_name, resolver, status) => {
+        const repository = adminRepository()
+        const app = createApp({
+            adminSessionResolver: resolver as AdminSessionResolver,
+            adminAssessmentRepository: repository,
+        })
+        server = await listen(app)
+
+        const response = await fetch(
+            `${serverOrigin(server)}/api/admin/assessments/9f3c0dc7-c892-4a7f-8130-8df6f65a8547`,
+            {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: '{',
+            },
+        )
+
+        expect(response.status).toBe(status)
+        expect(repository.update).not.toHaveBeenCalled()
+    })
+
+    it('accepts an authorized admin edit above the default 100 KB parser limit', async () => {
+        let savedPhotos = 0
+        const repository = adminRepository({
+            async update(input) {
+                savedPhotos = input.assessment.photos.length
+                return { status: 'updated', revision: '2026-08-16 09:00:00.000001-05' }
+            },
+        })
+        const app = createApp({
+            adminSessionResolver: async () => ({
+                user: { id: 'admin-1', role: 'super_admin' },
+            }),
+            adminAssessmentRepository: repository,
+        })
+        server = await listen(app)
+        const photo = Buffer.alloc(120_000, 0)
+        photo.set([0xff, 0xd8, 0xff], 0)
+        photo.set([0xff, 0xd9], photo.length - 2)
+
+        const response = await fetch(
+            `${serverOrigin(server)}/api/admin/assessments/9f3c0dc7-c892-4a7f-8130-8df6f65a8547`,
+            {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    revision: '2026-08-16 08:00:00-05',
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: assessmentPayload(photo.toString('base64')),
+                }),
+            },
+        )
+
+        expect(response.status).toBe(200)
+        expect(savedPhotos).toBe(1)
+    })
+
+    it('returns Spanish JSON when an authorized admin edit exceeds 4 MB', async () => {
+        const app = createApp({
+            adminSessionResolver: async () => ({
+                user: { id: 'admin-1', role: 'super_admin' },
+            }),
+            adminAssessmentRepository: adminRepository(),
+        })
+        server = await listen(app)
+
+        const response = await fetch(
+            `${serverOrigin(server)}/api/admin/assessments/9f3c0dc7-c892-4a7f-8130-8df6f65a8547`,
+            {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ oversized: 'a'.repeat(4 * 1024 * 1024) }),
+            },
+        )
+
+        expect(response.status).toBe(413)
+        expect(await response.json()).toEqual({
+            error: 'El contenido de la evaluación es demasiado grande',
+        })
+    })
+
+    it('keeps the default 100 KB JSON limit for unrelated admin user writes', async () => {
+        const app = createApp({
+            adminSessionResolver: async () => ({
+                user: { id: 'admin-1', role: 'super_admin' },
+            }),
+            adminAssessmentRepository: adminRepository(),
+        })
+        server = await listen(app)
+
+        const response = await fetch(`${serverOrigin(server)}/api/admin/users`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'a'.repeat(110_000) }),
+        })
+
+        expect(response.status).toBe(413)
+    })
 })
+
+function adminRepository(
+    overrides: Partial<AdminAssessmentRepository> = {},
+): AdminAssessmentRepository {
+    return {
+        async list() {
+            return []
+        },
+        async *streamCsvBatches() {},
+        async findDetailed() {
+            return null
+        },
+        findEditable: vi.fn().mockResolvedValue({ status: 'not_found' }),
+        update: vi.fn().mockResolvedValue({ status: 'not_found' }),
+        ...overrides,
+    }
+}
 
 function assessmentPayload(photoData: string) {
     return {

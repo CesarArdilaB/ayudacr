@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { toNodeHandler } from 'better-auth/node'
 import cors from 'cors'
 import express from 'express'
-import { createAdminRouter } from './admin.js'
+import {
+    type AdminAssessmentRepository,
+    type AdminSessionResolver,
+    createAdminRouter,
+} from './admin.js'
 import {
     type AssessmentRepository,
     createAssessmentsRouter,
@@ -17,6 +21,8 @@ export function createApp({
     authInstance = auth,
     assessmentRepository,
     sessionResolver,
+    adminAssessmentRepository,
+    adminSessionResolver,
     healthCheck = async () => {
         await databasePool.query('select 1 from "user", "shelter_assessments" limit 0')
     },
@@ -24,6 +30,8 @@ export function createApp({
     authInstance?: AuthInstance
     assessmentRepository?: AssessmentRepository
     sessionResolver?: SessionResolver
+    adminAssessmentRepository?: AdminAssessmentRepository
+    adminSessionResolver?: AdminSessionResolver
     healthCheck?: () => Promise<void>
 } = {}) {
     const app = express()
@@ -38,12 +46,19 @@ export function createApp({
     app.all('/api/auth/*splat', toNodeHandler(authInstance))
 
     app.use(
+        '/api/admin',
+        createAdminRouter({
+            assessmentRepository: adminAssessmentRepository,
+            sessionResolver: adminSessionResolver,
+        }),
+    )
+
+    app.use(
         '/api/assessments',
         express.json({ limit: '4mb' }),
         createAssessmentsRouter({ repository: assessmentRepository, sessionResolver }),
     )
     app.use(express.json())
-    app.use('/api/admin', createAdminRouter())
     app.get('/api/health', async (_request, response) => {
         try {
             await healthCheck()

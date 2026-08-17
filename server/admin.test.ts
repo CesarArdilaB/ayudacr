@@ -2,9 +2,11 @@ import { EventEmitter } from 'node:events'
 import type { AddressInfo } from 'node:net'
 import express from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ASSESSMENT_CRITERIA, type AssessmentSubmission } from '../shared/assessment.js'
 import {
     type AdminAssessmentRepository,
     type AdminSessionResolver,
+    CURRENT_ASSESSMENT_FORM_VERSION,
     createAdminRouter,
     streamAssessmentCsv,
 } from './admin.js'
@@ -56,7 +58,6 @@ afterEach(async () => {
 
 async function startAdminApi(options: Parameters<ConfigurableAdminRouter>[0]) {
     const app = express()
-    app.use(express.json())
     app.use('/api/admin', (createAdminRouter as ConfigurableAdminRouter)(options))
     const server = app.listen(0, '127.0.0.1')
     openServers.push(server)
@@ -102,7 +103,32 @@ function assessmentRepository(
         list: vi.fn().mockResolvedValue([]),
         streamCsvBatches: vi.fn(async function* () {}),
         findDetailed: vi.fn().mockResolvedValue(null),
+        findEditable: vi.fn().mockResolvedValue({ status: 'not_found' }),
+        update: vi.fn().mockResolvedValue({ status: 'not_found' }),
         ...overrides,
+    }
+}
+
+function editableAssessment(): AssessmentSubmission {
+    return {
+        institution: 'Coliseo Central',
+        visitDate: '2026-08-15',
+        municipality: 'PEREIRA',
+        department: 'RISARALDA',
+        contactName: 'Marta Díaz',
+        contactRole: 'Coordinadora',
+        phone: '3001234567',
+        email: 'marta@example.com',
+        protectionRiskDetails: '',
+        generalObservations: '',
+        visitors: ['Ana Torres'],
+        photos: [],
+        responses: ASSESSMENT_CRITERIA.map((criterion) => ({
+            criterionKey: criterion.key,
+            answer: 'yes' as const,
+            comments: '',
+            quantities: {},
+        })),
     }
 }
 
@@ -648,6 +674,262 @@ describe('super admin API', () => {
 
             expect(response.status).toBe(500)
             expect(await response.json()).toEqual({ error: 'Unable to export assessment' })
+        })
+    })
+
+    describe('assessment editing API', () => {
+        const id = '9f3c0dc7-c892-4a7f-8130-8df6f65a8547'
+        const revision = '2026-08-16 08:15:30.123456-05'
+
+        it.each([
+            ['anonymous', () => Promise.resolve(null), 401],
+            ['evaluator', evaluatorSession, 403],
+        ])('authenticates %s before parsing malformed JSON', async (_name, resolver, status) => {
+            const repository = assessmentRepository()
+            const url = await startAdminApi({
+                sessionResolver: resolver,
+                assessmentRepository: repository,
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: '{',
+            })
+
+            expect(response.status).toBe(status)
+            expect(repository.update).not.toHaveBeenCalled()
+        })
+
+        it('returns an explicit editable allowlist with canonical photos', async () => {
+            const assessment = editableAssessment()
+            const findEditable = vi.fn().mockResolvedValue({
+                status: 'found',
+                record: {
+                    id,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    revision,
+                    createdAt: '2026-08-15T20:00:00.000Z',
+                    createdBy: { name: 'Ana Torres', email: 'ana@example.com' },
+                    assessment,
+                    photos: [
+                        {
+                            position: 0,
+                            mimeType: 'image/jpeg',
+                            size: 4,
+                            data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+                            internalId: 'must-not-leak',
+                        },
+                    ],
+                    internalForeignKey: 'must-not-leak',
+                },
+            })
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({ findEditable }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`)
+
+            expect(response.status).toBe(200)
+            expect(response.headers.get('cache-control')).toBe('private, no-store')
+            expect(await response.json()).toEqual({
+                record: {
+                    id,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    revision,
+                    createdAt: '2026-08-15T20:00:00.000Z',
+                    createdBy: { name: 'Ana Torres', email: 'ana@example.com' },
+                    assessment: {
+                        ...assessment,
+                        photos: [
+                            {
+                                position: 0,
+                                mimeType: 'image/jpeg',
+                                size: 4,
+                                data: '/9j/2Q==',
+                            },
+                        ],
+                    },
+                },
+            })
+        })
+
+        it.each([
+            ['missing', { status: 'not_found' }, 404],
+            ['historical', { status: 'unsupported' }, 409],
+        ])('maps a %s editable lookup without leaking a record', async (_name, result, status) => {
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({
+                    findEditable: vi.fn().mockResolvedValue(result),
+                }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`)
+
+            expect(response.status).toBe(status)
+            expect(response.headers.get('cache-control')).toBe('private, no-store')
+            expect(await response.json()).toHaveProperty('error')
+        })
+
+        it('rejects an invalid edit ID without reading the repository', async () => {
+            const repository = assessmentRepository()
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: repository,
+            })
+
+            const response = await fetch(`${url}/assessments/not-a-uuid`)
+
+            expect(response.status).toBe(400)
+            expect(repository.findEditable).not.toHaveBeenCalled()
+        })
+
+        it('leaves the PDF route ahead of the editable record route', async () => {
+            const repository = assessmentRepository()
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: repository,
+            })
+
+            const response = await fetch(`${url}/assessments/${id}.pdf`)
+
+            expect(response.status).toBe(404)
+            expect(repository.findDetailed).toHaveBeenCalledWith(id)
+            expect(repository.findEditable).not.toHaveBeenCalled()
+        })
+
+        it('validates and updates a current assessment', async () => {
+            const assessment = editableAssessment()
+            const update = vi.fn().mockResolvedValue({
+                status: 'updated',
+                revision: '2026-08-16 08:16:00-05',
+            })
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({ update }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    revision,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment,
+                }),
+            })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({
+                id,
+                revision: '2026-08-16 08:16:00-05',
+            })
+            expect(update).toHaveBeenCalledWith({
+                id,
+                revision,
+                formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                assessment,
+            })
+        })
+
+        it.each([
+            ['not found', { status: 'not_found' }, 404],
+            ['unsupported', { status: 'unsupported' }, 409],
+            ['conflict', { status: 'conflict' }, 409],
+        ])('maps update result %s', async (_name, result, status) => {
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({
+                    update: vi.fn().mockResolvedValue(result),
+                }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    revision,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                }),
+            })
+
+            expect(response.status).toBe(status)
+            expect(await response.json()).toHaveProperty('error')
+        })
+
+        it.each([
+            ['non-object body', [], 400],
+            [
+                'bad version',
+                { revision, formVersion: '2099-01-01', assessment: editableAssessment() },
+                400,
+            ],
+            [
+                'non-string revision',
+                {
+                    revision: 123,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                },
+                400,
+            ],
+            [
+                'overlong revision',
+                {
+                    revision: 'x'.repeat(65),
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                },
+                400,
+            ],
+            [
+                'malformed revision',
+                {
+                    revision: '2026-08-16T13:15:30Z',
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                },
+                400,
+            ],
+            [
+                'invalid assessment',
+                { revision, formVersion: CURRENT_ASSESSMENT_FORM_VERSION, assessment: {} },
+                400,
+            ],
+        ])('rejects %s before updating', async (_name, body, status) => {
+            const repository = assessmentRepository()
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: repository,
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            })
+
+            expect(response.status).toBe(status)
+            expect(repository.update).not.toHaveBeenCalled()
+        })
+
+        it('returns Spanish JSON for authorized malformed JSON', async () => {
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository(),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: '{',
+            })
+
+            expect(response.status).toBe(400)
+            expect(await response.json()).toEqual({ error: 'El contenido JSON no es válido' })
         })
     })
 })

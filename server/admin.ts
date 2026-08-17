@@ -3,7 +3,12 @@ import type { IncomingHttpHeaders } from 'node:http'
 import { hashPassword } from 'better-auth/crypto'
 import { fromNodeHeaders } from 'better-auth/node'
 import { and, asc, count, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
-import { type Response, Router } from 'express'
+import { json, type NextFunction, type Request, type Response, Router } from 'express'
+import {
+    ASSESSMENT_CRITERIA,
+    type AssessmentSubmission,
+    parseAssessmentSubmission,
+} from '../shared/assessment.js'
 import {
     type AssessmentCsvRecord,
     type AssessmentPdfRecord,
@@ -39,10 +44,49 @@ export type AdminAssessment = {
     responseCount: number
 }
 
+export const CURRENT_ASSESSMENT_FORM_VERSION = '2026-08-10'
+
+export type EditableAssessmentPhoto = {
+    position: number
+    mimeType: 'image/jpeg'
+    size: number
+    data: Buffer
+}
+
+export type EditableAssessmentRecord = {
+    id: string
+    formVersion: typeof CURRENT_ASSESSMENT_FORM_VERSION
+    revision: string
+    createdAt: string
+    createdBy: { name: string; email: string }
+    assessment: Omit<AssessmentSubmission, 'photos'> & { photos: [] }
+    photos: EditableAssessmentPhoto[]
+}
+
+export type FindEditableAssessmentResult =
+    | { status: 'found'; record: EditableAssessmentRecord }
+    | { status: 'unsupported' }
+    | { status: 'not_found' }
+
+export type UpdateEditableAssessmentInput = {
+    id: string
+    revision: string
+    formVersion: string
+    assessment: AssessmentSubmission
+}
+
+export type UpdateEditableAssessmentResult =
+    | { status: 'updated'; revision: string }
+    | { status: 'unsupported' }
+    | { status: 'conflict' }
+    | { status: 'not_found' }
+
 export type AdminAssessmentRepository = {
     list(): Promise<AdminAssessment[]>
     streamCsvBatches(): AsyncIterable<AssessmentCsvRecord>
     findDetailed(id: string): Promise<AssessmentPdfRecord | null>
+    findEditable(id: string): Promise<FindEditableAssessmentResult>
+    update(input: UpdateEditableAssessmentInput): Promise<UpdateEditableAssessmentResult>
 }
 
 export type AdminUser = {
@@ -277,6 +321,196 @@ export function createDrizzleAdminAssessmentRepository(
                 photos,
             }
         },
+        async findEditable(id) {
+            const [parent] = await database
+                .select({
+                    id: shelterAssessments.id,
+                    formVersion: shelterAssessments.formVersion,
+                })
+                .from(shelterAssessments)
+                .where(eq(shelterAssessments.id, id))
+
+            if (!parent) return { status: 'not_found' }
+            if (parent.formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
+                return { status: 'unsupported' }
+            }
+
+            const criterionKeys = ASSESSMENT_CRITERIA.map((criterion) => criterion.key)
+            const [records, storedResponses, photos] = await Promise.all([
+                database
+                    .select({
+                        id: shelterAssessments.id,
+                        revision: sql<string>`${shelterAssessments.updatedAt}::text`,
+                        institution: shelterAssessments.institution,
+                        visitDate: shelterAssessments.visitDate,
+                        municipality: shelterAssessments.municipality,
+                        department: shelterAssessments.department,
+                        contactName: shelterAssessments.contactName,
+                        contactRole: shelterAssessments.contactRole,
+                        phone: shelterAssessments.phone,
+                        email: shelterAssessments.email,
+                        protectionRiskDetails: shelterAssessments.protectionRiskDetails,
+                        generalObservations: shelterAssessments.generalObservations,
+                        visitors: shelterAssessments.visitors,
+                        createdAt: shelterAssessments.createdAt,
+                        creatorName: user.name,
+                        creatorEmail: user.email,
+                    })
+                    .from(shelterAssessments)
+                    .innerJoin(user, eq(shelterAssessments.createdByUserId, user.id))
+                    .where(
+                        and(
+                            eq(shelterAssessments.id, id),
+                            eq(shelterAssessments.formVersion, CURRENT_ASSESSMENT_FORM_VERSION),
+                        ),
+                    ),
+                database
+                    .select({
+                        criterionKey: assessmentResponses.criterionKey,
+                        answer: assessmentResponses.answer,
+                        comments: assessmentResponses.comments,
+                        quantities: assessmentResponses.quantities,
+                    })
+                    .from(assessmentResponses)
+                    .where(
+                        and(
+                            eq(assessmentResponses.assessmentId, id),
+                            inArray(assessmentResponses.criterionKey, criterionKeys),
+                        ),
+                    ),
+                database
+                    .select({
+                        position: assessmentPhotos.position,
+                        mimeType: assessmentPhotos.mimeType,
+                        size: assessmentPhotos.size,
+                        data: assessmentPhotos.data,
+                    })
+                    .from(assessmentPhotos)
+                    .where(eq(assessmentPhotos.assessmentId, id))
+                    .orderBy(asc(assessmentPhotos.position)),
+            ])
+            const [record] = records
+            if (!record) return { status: 'not_found' }
+            const responseByKey = new Map(
+                storedResponses.map((response) => [response.criterionKey, response]),
+            )
+
+            return {
+                status: 'found',
+                record: {
+                    id: record.id,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    revision: record.revision,
+                    createdAt: record.createdAt.toISOString(),
+                    createdBy: { name: record.creatorName, email: record.creatorEmail },
+                    assessment: {
+                        institution: record.institution,
+                        visitDate: record.visitDate,
+                        municipality: record.municipality,
+                        department: record.department,
+                        contactName: record.contactName,
+                        contactRole: record.contactRole,
+                        phone: record.phone,
+                        email: record.email,
+                        protectionRiskDetails: record.protectionRiskDetails,
+                        generalObservations: record.generalObservations,
+                        visitors: record.visitors,
+                        photos: [],
+                        responses: criterionKeys
+                            .map((criterionKey) => responseByKey.get(criterionKey))
+                            .filter((response): response is NonNullable<typeof response> =>
+                                Boolean(response),
+                            ),
+                    },
+                    photos: photos.map((photo) => ({
+                        ...photo,
+                        mimeType: 'image/jpeg' as const,
+                        data: Buffer.from(photo.data),
+                    })),
+                },
+            }
+        },
+        async update(input) {
+            return database.transaction(async (transaction) => {
+                if (input.formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
+                    return { status: 'unsupported' as const }
+                }
+
+                const [updated] = await transaction
+                    .update(shelterAssessments)
+                    .set({
+                        institution: input.assessment.institution,
+                        visitDate: input.assessment.visitDate,
+                        municipality: input.assessment.municipality,
+                        department: input.assessment.department,
+                        contactName: input.assessment.contactName,
+                        contactRole: input.assessment.contactRole,
+                        phone: input.assessment.phone,
+                        email: input.assessment.email,
+                        protectionRiskDetails: input.assessment.protectionRiskDetails,
+                        generalObservations: input.assessment.generalObservations,
+                        visitors: input.assessment.visitors,
+                        updatedAt: sql`greatest(clock_timestamp(), ${shelterAssessments.updatedAt} + interval '1 microsecond')`,
+                    })
+                    .where(
+                        and(
+                            eq(shelterAssessments.id, input.id),
+                            eq(shelterAssessments.formVersion, CURRENT_ASSESSMENT_FORM_VERSION),
+                            sql`${shelterAssessments.updatedAt}::text = ${input.revision}`,
+                        ),
+                    )
+                    .returning({
+                        revision: sql<string>`${shelterAssessments.updatedAt}::text`,
+                    })
+
+                if (!updated) {
+                    const [existing] = await transaction
+                        .select({ formVersion: shelterAssessments.formVersion })
+                        .from(shelterAssessments)
+                        .where(eq(shelterAssessments.id, input.id))
+                    if (!existing) return { status: 'not_found' as const }
+                    if (existing.formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
+                        return { status: 'unsupported' as const }
+                    }
+                    return { status: 'conflict' as const }
+                }
+
+                const criterionKeys = ASSESSMENT_CRITERIA.map((criterion) => criterion.key)
+                await transaction
+                    .delete(assessmentResponses)
+                    .where(
+                        and(
+                            eq(assessmentResponses.assessmentId, input.id),
+                            inArray(assessmentResponses.criterionKey, criterionKeys),
+                        ),
+                    )
+                await transaction.insert(assessmentResponses).values(
+                    input.assessment.responses.map((response) => ({
+                        assessmentId: input.id,
+                        criterionKey: response.criterionKey,
+                        answer: response.answer,
+                        comments: response.comments,
+                        quantities: response.quantities,
+                    })),
+                )
+                await transaction
+                    .delete(assessmentPhotos)
+                    .where(eq(assessmentPhotos.assessmentId, input.id))
+                if (input.assessment.photos.length) {
+                    await transaction.insert(assessmentPhotos).values(
+                        input.assessment.photos.map((photo, position) => ({
+                            assessmentId: input.id,
+                            position,
+                            mimeType: photo.mimeType,
+                            size: photo.size,
+                            data: Buffer.from(photo.data, 'base64'),
+                        })),
+                    )
+                }
+
+                return { status: 'updated' as const, revision: updated.revision }
+            })
+        },
     }
 }
 
@@ -462,6 +696,15 @@ export async function streamAssessmentCsv(
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const REVISION_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::?\d{2})?$/u
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function setPrivateNoStore(response: Response): void {
+    response.setHeader('Cache-Control', 'private, no-store')
+}
 
 export function createAdminRouter({
     sessionResolver = betterAuthAdminSessionResolver,
@@ -537,6 +780,133 @@ export function createAdminRouter({
         }
     })
 
+    router.get('/assessments/:assessmentId', async (request, response) => {
+        const assessmentId = request.params.assessmentId
+        setPrivateNoStore(response)
+        if (!UUID_PATTERN.test(assessmentId)) {
+            response.status(400).json({ error: 'El identificador de la evaluación no es válido' })
+            return
+        }
+        try {
+            const result = await assessmentRepository.findEditable(assessmentId)
+            if (result.status === 'not_found') {
+                response.status(404).json({ error: 'No se encontró la evaluación' })
+                return
+            }
+            if (result.status === 'unsupported') {
+                response.status(409).json({
+                    error: 'Esta versión histórica del formulario no se puede editar',
+                })
+                return
+            }
+            const { record } = result
+            response.json({
+                record: {
+                    id: record.id,
+                    formVersion: record.formVersion,
+                    revision: record.revision,
+                    createdAt: record.createdAt,
+                    createdBy: {
+                        name: record.createdBy.name,
+                        email: record.createdBy.email,
+                    },
+                    assessment: {
+                        institution: record.assessment.institution,
+                        visitDate: record.assessment.visitDate,
+                        municipality: record.assessment.municipality,
+                        department: record.assessment.department,
+                        contactName: record.assessment.contactName,
+                        contactRole: record.assessment.contactRole,
+                        phone: record.assessment.phone,
+                        email: record.assessment.email,
+                        protectionRiskDetails: record.assessment.protectionRiskDetails,
+                        generalObservations: record.assessment.generalObservations,
+                        visitors: record.assessment.visitors,
+                        responses: record.assessment.responses.map((storedResponse) => ({
+                            criterionKey: storedResponse.criterionKey,
+                            answer: storedResponse.answer,
+                            comments: storedResponse.comments,
+                            quantities: storedResponse.quantities,
+                        })),
+                        photos: record.photos.map((photo) => ({
+                            position: photo.position,
+                            mimeType: photo.mimeType,
+                            size: photo.size,
+                            data: photo.data.toString('base64'),
+                        })),
+                    },
+                },
+            })
+        } catch (error) {
+            console.error('Unable to load editable shelter assessment', error)
+            response.status(500).json({ error: 'No fue posible cargar la evaluación' })
+        }
+    })
+
+    router.put('/assessments/:assessmentId', json({ limit: '4mb' }), async (request, response) => {
+        const assessmentId = request.params.assessmentId
+        setPrivateNoStore(response)
+        if (!UUID_PATTERN.test(assessmentId)) {
+            response.status(400).json({ error: 'El identificador de la evaluación no es válido' })
+            return
+        }
+        if (!isObject(request.body)) {
+            response.status(400).json({ error: 'Los datos de edición no son válidos' })
+            return
+        }
+        const revision = request.body.revision
+        const formVersion = request.body.formVersion
+        if (
+            typeof revision !== 'string' ||
+            revision.length > 64 ||
+            !REVISION_PATTERN.test(revision)
+        ) {
+            response.status(400).json({ error: 'La revisión de la evaluación no es válida' })
+            return
+        }
+        if (formVersion !== CURRENT_ASSESSMENT_FORM_VERSION) {
+            response.status(400).json({ error: 'La versión del formulario no es válida' })
+            return
+        }
+        const parsed = parseAssessmentSubmission(request.body.assessment)
+        if (!parsed.success) {
+            response.status(400).json({
+                error: 'La evaluación no es válida',
+                details: parsed.errors,
+            })
+            return
+        }
+
+        try {
+            const result = await assessmentRepository.update({
+                id: assessmentId,
+                revision,
+                formVersion,
+                assessment: parsed.data,
+            })
+            if (result.status === 'not_found') {
+                response.status(404).json({ error: 'No se encontró la evaluación' })
+                return
+            }
+            if (result.status === 'unsupported') {
+                response.status(409).json({
+                    error: 'Esta versión histórica del formulario no se puede editar',
+                })
+                return
+            }
+            if (result.status === 'conflict') {
+                response.status(409).json({
+                    error: 'La evaluación fue modificada por otra persona. Recárguela.',
+                })
+                return
+            }
+            response.json({ id: assessmentId, revision: result.revision })
+        } catch (error) {
+            console.error('Unable to update shelter assessment', error)
+            response.status(500).json({ error: 'No fue posible actualizar la evaluación' })
+        }
+    })
+
     router.get('/assessments', async (_request, response) => {
         try {
             response.json({ records: await assessmentRepository.list() })
@@ -545,6 +915,8 @@ export function createAdminRouter({
             response.status(500).json({ error: 'Unable to load assessments' })
         }
     })
+
+    router.use(json())
 
     router.get('/users', async (_request, response) => {
         try {
@@ -592,6 +964,27 @@ export function createAdminRouter({
             userError(response, error)
         }
     })
+
+    router.use(
+        (
+            error: { status?: number; type?: string },
+            _request: Request,
+            response: Response,
+            next: NextFunction,
+        ) => {
+            if (error.status === 413 || error.type === 'entity.too.large') {
+                response
+                    .status(413)
+                    .json({ error: 'El contenido de la evaluación es demasiado grande' })
+                return
+            }
+            if (error.type === 'entity.parse.failed') {
+                response.status(400).json({ error: 'El contenido JSON no es válido' })
+                return
+            }
+            next(error)
+        },
+    )
 
     return router
 }
