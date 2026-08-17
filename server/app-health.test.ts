@@ -139,6 +139,33 @@ describe('API readiness', () => {
         expect(repository.update).not.toHaveBeenCalled()
     })
 
+    it.each([
+        ['signed out', async () => null, 401],
+        ['evaluator', async () => ({ user: { id: 'user-1', role: 'evaluator' as const } }), 403],
+    ])(
+        'rejects a %s admin edit above 4 MB before the body-size parser',
+        async (_name, resolver, status) => {
+            const repository = adminRepository()
+            const app = createApp({
+                adminSessionResolver: resolver as AdminSessionResolver,
+                adminAssessmentRepository: repository,
+            })
+            server = await listen(app)
+
+            const response = await fetch(
+                `${serverOrigin(server)}/api/admin/assessments/9f3c0dc7-c892-4a7f-8130-8df6f65a8547`,
+                {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ oversized: 'a'.repeat(4 * 1024 * 1024) }),
+                },
+            )
+
+            expect(response.status).toBe(status)
+            expect(repository.update).not.toHaveBeenCalled()
+        },
+    )
+
     it('accepts an authorized admin edit above the default 100 KB parser limit', async () => {
         let savedPhotos = 0
         const repository = adminRepository({

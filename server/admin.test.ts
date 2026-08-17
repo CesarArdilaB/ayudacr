@@ -786,6 +786,30 @@ describe('super admin API', () => {
             expect(repository.findEditable).not.toHaveBeenCalled()
         })
 
+        it('rejects an invalid PUT ID without updating the repository', async () => {
+            const repository = assessmentRepository()
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: repository,
+            })
+
+            const response = await fetch(`${url}/assessments/not-a-uuid`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    revision,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                }),
+            })
+
+            expect(response.status).toBe(400)
+            expect(await response.json()).toEqual({
+                error: 'El identificador de la evaluación no es válido',
+            })
+            expect(repository.update).not.toHaveBeenCalled()
+        })
+
         it('leaves the PDF route ahead of the editable record route', async () => {
             const repository = assessmentRepository()
             const url = await startAdminApi({
@@ -930,6 +954,54 @@ describe('super admin API', () => {
 
             expect(response.status).toBe(400)
             expect(await response.json()).toEqual({ error: 'El contenido JSON no es válido' })
+        })
+
+        it('returns sanitized JSON 500 when loading the editable record fails', async () => {
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+            const secret = 'database-password-must-not-leak'
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({
+                    findEditable: vi.fn().mockRejectedValue(new Error(secret)),
+                }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`)
+            const body = await response.text()
+
+            expect(response.status).toBe(500)
+            expect(response.headers.get('content-type')).toMatch(/^application\/json/)
+            expect(JSON.parse(body)).toEqual({ error: 'No fue posible cargar la evaluación' })
+            expect(body).not.toContain(secret)
+            expect(consoleError).toHaveBeenCalledOnce()
+        })
+
+        it('returns sanitized JSON 500 when updating the editable record fails', async () => {
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+            const secret = 'connection-string-must-not-leak'
+            const url = await startAdminApi({
+                sessionResolver: adminSession,
+                assessmentRepository: assessmentRepository({
+                    update: vi.fn().mockRejectedValue(new Error(secret)),
+                }),
+            })
+
+            const response = await fetch(`${url}/assessments/${id}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    revision,
+                    formVersion: CURRENT_ASSESSMENT_FORM_VERSION,
+                    assessment: editableAssessment(),
+                }),
+            })
+            const body = await response.text()
+
+            expect(response.status).toBe(500)
+            expect(response.headers.get('content-type')).toMatch(/^application\/json/)
+            expect(JSON.parse(body)).toEqual({ error: 'No fue posible actualizar la evaluación' })
+            expect(body).not.toContain(secret)
+            expect(consoleError).toHaveBeenCalledOnce()
         })
     })
 })

@@ -426,13 +426,22 @@ describe('admin assessment export repository with PostgreSQL', () => {
         })
 
         it('returns missing, unsupported, and conflict without mutating child records', async () => {
-            const seeded = await seedEditableAssessment(database)
+            const seeded = await seedEditableAssessment(database, {
+                photos: [Buffer.from([0xff, 0xd8, 7, 0xff, 0xd9])],
+            })
             const historical = await seedEditableAssessment(database, {
                 id: 'b17c72c1-e86e-4bca-94ac-ea8f67f95cb2',
                 formVersion: '2026-01-01',
+                unknownResponse: true,
+                photos: [
+                    Buffer.from([0xff, 0xd8, 8, 0xff, 0xd9]),
+                    Buffer.from([0xff, 0xd8, 9, 0xff, 0xd9]),
+                ],
             })
             const repository = createDrizzleAdminAssessmentRepository(database as never)
-            const before = await database.select().from(schema.assessmentResponses)
+            const beforeParents = await database.select().from(schema.shelterAssessments)
+            const beforeResponses = await database.select().from(schema.assessmentResponses)
+            const beforePhotos = await database.select().from(schema.assessmentPhotos)
             const assessment = editableSubmission({ institution: 'No debe persistir' })
 
             expect(
@@ -467,7 +476,11 @@ describe('admin assessment export repository with PostgreSQL', () => {
                     assessment,
                 }),
             ).toEqual({ status: 'unsupported' })
-            expect(await database.select().from(schema.assessmentResponses)).toEqual(before)
+            expect(await database.select().from(schema.shelterAssessments)).toEqual(beforeParents)
+            expect(await database.select().from(schema.assessmentResponses)).toEqual(
+                beforeResponses,
+            )
+            expect(await database.select().from(schema.assessmentPhotos)).toEqual(beforePhotos)
             expect(await repository.findEditable(seeded.id)).toMatchObject({
                 status: 'found',
                 record: { assessment: { institution: seeded.submission.institution } },
