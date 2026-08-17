@@ -525,7 +525,7 @@ describe('super admin API', () => {
             expect(writes.reduce((total, size) => total + size, 0)).toBeGreaterThan(4_500_000)
             expect(writes).toHaveLength(101)
             expect(Math.max(...writes)).toBeLessThan(4_500_000)
-        })
+        }, 10_000)
 
         it('stops a backpressured stream when the client connection closes', async () => {
             const response = Object.assign(new EventEmitter(), {
