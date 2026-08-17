@@ -14,6 +14,7 @@ export function AdminAssessmentEditor({
     onCancel,
     onSaved,
     onDirtyChange,
+    onSavingChange,
 }: {
     assessmentId: string
     getAssessment?: (
@@ -27,6 +28,7 @@ export function AdminAssessmentEditor({
     onCancel: () => void
     onSaved: () => void
     onDirtyChange: (dirty: boolean) => void
+    onSavingChange: (saving: boolean) => void
 }) {
     const [record, setRecord] = useState<AdminEditableAssessment>()
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -96,6 +98,7 @@ export function AdminAssessmentEditor({
             mode="edit"
             initialSubmission={record.assessment}
             onDirtyChange={onDirtyChange}
+            onSavingChange={onSavingChange}
             onCancel={cancel}
             onSaved={() => onSaved()}
             onSubmit={(assessment) =>

@@ -27,10 +27,17 @@ function createAdminService(overrides: Partial<AdminService> = {}): AdminService
 }
 
 describe('App', () => {
-    it('warns before leaving a dirty record edit or signing out', async () => {
+    it('warns when dirty and blocks all dashboard exits while an edit is saving', async () => {
         const user = userEvent.setup()
         const signOut = vi.fn().mockResolvedValue({})
         const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        let resolveUpdate: ((value: { id: string; revision: string }) => void) | undefined
+        const updateAssessment = vi.fn(
+            () =>
+                new Promise<{ id: string; revision: string }>((resolve) => {
+                    resolveUpdate = resolve
+                }),
+        )
         const summary = {
             id: 'record-1',
             institution: 'Coliseo',
@@ -78,7 +85,7 @@ describe('App', () => {
         const adminService = createAdminService({
             listAssessments: vi.fn().mockResolvedValue({ records: [summary] }),
             getAssessment: vi.fn().mockResolvedValue({ record: editable }),
-            updateAssessment: vi.fn(),
+            updateAssessment,
         } as never)
         render(<App authService={authService} adminService={adminService} />)
         await user.click(screen.getByRole('button', { name: 'Registros' }))
@@ -91,6 +98,22 @@ describe('App', () => {
         await user.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
         expect(confirm).toHaveBeenCalledTimes(2)
         expect(signOut).not.toHaveBeenCalled()
+
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+        expect(screen.getByRole('button', { name: 'Nueva evaluación' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Registros' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Usuarios' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Guardando evaluación…' })).toBeDisabled()
+        await user.click(screen.getByRole('button', { name: 'Usuarios' }))
+        await user.click(screen.getByRole('button', { name: 'Guardando evaluación…' }))
+        expect(signOut).not.toHaveBeenCalled()
+
+        resolveUpdate?.({ id: 'record-1', revision: 'r2' })
+        expect(
+            await screen.findByRole('heading', { name: 'Registros capturados' }),
+        ).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeEnabled()
     })
     it('shows the sign-in journey to a signed-out visitor', () => {
         render(<App authService={createAuthService()} />)

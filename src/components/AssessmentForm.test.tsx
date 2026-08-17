@@ -160,6 +160,84 @@ describe('AssessmentForm', () => {
         window.dispatchEvent(dirtyEvent)
         expect(dirtyEvent.defaultPrevented).toBe(true)
     })
+
+    it('locks the complete edit and reports saving until a pending update succeeds', async () => {
+        const user = userEvent.setup()
+        let resolveSave: ((value: { id: string }) => void) | undefined
+        let submitted: AssessmentSubmission | undefined
+        const onCancel = vi.fn()
+        const onSaved = vi.fn()
+        const onSavingChange = vi.fn()
+        render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={emptyCompleteSubmission()}
+                onCancel={onCancel}
+                onSaved={onSaved}
+                onSavingChange={onSavingChange}
+                onSubmit={(value) => {
+                    submitted = value
+                    return new Promise((resolve) => {
+                        resolveSave = resolve
+                    })
+                }}
+            />,
+        )
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+        expect(screen.getByLabelText('Evaluación de alojamiento temporal')).toHaveAttribute(
+            'aria-busy',
+            'true',
+        )
+        expect(screen.getByRole('button', { name: 'Cancelar edición' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Datos del alojamiento' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Alertas inmediatas' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: '← Volver a alertas' })).toBeDisabled()
+        expect(screen.getByLabelText('Agregar fotos')).toBeDisabled()
+        expect(onSavingChange).toHaveBeenLastCalledWith(true)
+        const savingEvent = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(savingEvent)
+        expect(savingEvent.defaultPrevented).toBe(true)
+
+        await user.click(screen.getByRole('button', { name: 'Datos del alojamiento' }))
+        expect(screen.getByRole('heading', { name: 'Revisión final' })).toBeInTheDocument()
+        expect(submitted?.institution).toBe('Albergue')
+        expect(onCancel).not.toHaveBeenCalled()
+
+        resolveSave?.({ id: 'record-1' })
+        expect(await screen.findByRole('button', { name: 'Cambios guardados' })).toBeDisabled()
+        expect(onSavingChange).toHaveBeenLastCalledWith(false)
+        expect(onSaved).toHaveBeenCalledOnce()
+    })
+
+    it('ignores a late save completion after unmount and clears the saving signal', async () => {
+        const user = userEvent.setup()
+        let resolveSave: ((value: { id: string }) => void) | undefined
+        const onSaved = vi.fn()
+        const onSavingChange = vi.fn()
+        const view = render(
+            <AssessmentForm
+                mode="edit"
+                initialSubmission={emptyCompleteSubmission()}
+                onSaved={onSaved}
+                onSavingChange={onSavingChange}
+                onSubmit={() =>
+                    new Promise((resolve) => {
+                        resolveSave = resolve
+                    })
+                }
+            />,
+        )
+        await user.click(screen.getByRole('button', { name: 'Revisión final' }))
+        await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+        view.unmount()
+        resolveSave?.({ id: 'record-1' })
+        await Promise.resolve()
+
+        expect(onSaved).not.toHaveBeenCalled()
+        expect(onSavingChange).toHaveBeenLastCalledWith(false)
+    })
     it('starts with the shelter and visit identification fields', () => {
         render(<AssessmentForm onSubmit={async () => ({ id: 'assessment-1' })} />)
 

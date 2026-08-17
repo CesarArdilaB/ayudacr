@@ -196,6 +196,7 @@ export function AssessmentForm({
     onCancel,
     onSaved,
     onDirtyChange,
+    onSavingChange,
 }: {
     onSubmit: (submission: AssessmentSubmission) => Promise<{ id: string }>
     photoPreparer?: (file: File) => Promise<AssessmentPhotoInput>
@@ -204,6 +205,7 @@ export function AssessmentForm({
     onCancel?: () => void
     onSaved?: (result: { id: string }) => void
     onDirtyChange?: (dirty: boolean) => void
+    onSavingChange?: (saving: boolean) => void
 }) {
     const [step, setStep] = useState(0)
     const [details, setDetails] = useState(() => initializeAssessmentDetails(initialSubmission))
@@ -219,6 +221,9 @@ export function AssessmentForm({
     const [isProcessingPhotos, setIsProcessingPhotos] = useState(false)
     const [photoMessage, setPhotoMessage] = useState('')
     const photoInputRef = useRef<HTMLInputElement>(null)
+    const mountedRef = useRef(true)
+    const onSavingChangeRef = useRef(onSavingChange)
+    onSavingChangeRef.current = onSavingChange
     const currentSection = ASSESSMENT_SECTIONS[step - 1]
     const reviewStep = ASSESSMENT_SECTIONS.length + 1
     const totalSteps = reviewStep + 1
@@ -248,18 +253,28 @@ export function AssessmentForm({
     const currentSnapshot = JSON.stringify(currentSubmission)
     const dirty = mode === 'edit' && currentSnapshot !== initialSnapshotRef.current
 
-    useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
     useEffect(() => {
-        if (!dirty) return
+        mountedRef.current = true
+        return () => {
+            mountedRef.current = false
+            onSavingChangeRef.current?.(false)
+        }
+    }, [])
+
+    useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+    useEffect(() => onSavingChange?.(isSaving), [isSaving, onSavingChange])
+    useEffect(() => {
+        if (!dirty && !isSaving) return
         const warn = (event: BeforeUnloadEvent) => {
             event.preventDefault()
             event.returnValue = ''
         }
         window.addEventListener('beforeunload', warn)
         return () => window.removeEventListener('beforeunload', warn)
-    }, [dirty])
+    }, [dirty, isSaving])
 
     function updateDetails(name: keyof AssessmentDetails, value: string) {
+        if (isSaving) return
         setDetails((current) => ({
             ...current,
             [name]: value,
@@ -270,6 +285,7 @@ export function AssessmentForm({
     }
 
     function updateAnswer(criterionKey: string, answer: AssessmentAnswer) {
+        if (isSaving) return
         setResponses((current) => ({
             ...current,
             [criterionKey]: {
@@ -283,6 +299,7 @@ export function AssessmentForm({
     }
 
     function updateComments(criterionKey: string, comments: string) {
+        if (isSaving) return
         setResponses((current) => ({
             ...current,
             [criterionKey]: {
@@ -295,6 +312,7 @@ export function AssessmentForm({
     }
 
     function updateQuantity(criterionKey: string, quantityKey: string, value: string) {
+        if (isSaving) return
         if (value !== '' && !/^\d+$/.test(value)) return
 
         setResponses((current) => ({
@@ -424,6 +442,7 @@ export function AssessmentForm({
     }
 
     function removePhoto(id: string) {
+        if (isSaving) return
         setPhotos((current) => current.filter((item) => item.id !== id))
         setPhotoMessage('')
         setIsSaved(false)
@@ -432,10 +451,12 @@ export function AssessmentForm({
 
     async function saveAssessment() {
         setIsSaving(true)
+        onSavingChange?.(true)
         setMessage(undefined)
 
         try {
             const result = await onSubmit(buildSubmission())
+            if (!mountedRef.current) return
             setMessage({
                 type: 'success',
                 text: `Evaluación guardada. Registro ${result.id.slice(0, 8)}.`,
@@ -443,8 +464,11 @@ export function AssessmentForm({
             setIsSaved(true)
             initialSnapshotRef.current = currentSnapshot
             onDirtyChange?.(false)
+            setIsSaving(false)
+            onSavingChange?.(false)
             onSaved?.(result)
         } catch (error) {
+            if (!mountedRef.current) return
             setMessage({
                 type: 'error',
                 text:
@@ -453,19 +477,27 @@ export function AssessmentForm({
                         : 'No se pudo guardar la evaluación. Revisá la conexión e intentá nuevamente.',
             })
         } finally {
-            setIsSaving(false)
-            window.scrollTo({ top: 0, behavior: 'smooth' })
+            if (mountedRef.current) {
+                setIsSaving(false)
+                onSavingChange?.(false)
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
         }
     }
 
     function cancelEditing() {
+        if (isSaving) return
         if (dirty && !window.confirm('Hay cambios sin guardar. ¿Querés salir de la edición?'))
             return
         onCancel?.()
     }
 
     return (
-        <section className="assessment-workspace" aria-label="Evaluación de alojamiento temporal">
+        <section
+            className="assessment-workspace"
+            aria-label="Evaluación de alojamiento temporal"
+            aria-busy={isSaving}
+        >
             <aside className="assessment-rail">
                 <div className="rail-kicker">Formulario PGI</div>
                 <div
@@ -485,7 +517,10 @@ export function AssessmentForm({
                     <button
                         className={step === 0 ? 'current' : ''}
                         type="button"
-                        onClick={() => setStep(0)}
+                        disabled={isSaving}
+                        onClick={() => {
+                            if (!isSaving) setStep(0)
+                        }}
                     >
                         Datos del alojamiento
                     </button>
@@ -494,8 +529,10 @@ export function AssessmentForm({
                             className={step === index + 1 ? 'current' : ''}
                             type="button"
                             key={section.key}
-                            disabled={mode === 'create' && index + 1 > step}
-                            onClick={() => setStep(index + 1)}
+                            disabled={isSaving || (mode === 'create' && index + 1 > step)}
+                            onClick={() => {
+                                if (!isSaving) setStep(index + 1)
+                            }}
                         >
                             {section.title}
                         </button>
@@ -503,8 +540,10 @@ export function AssessmentForm({
                     <button
                         className={step === reviewStep ? 'current' : ''}
                         type="button"
-                        disabled={mode === 'create'}
-                        onClick={() => setStep(reviewStep)}
+                        disabled={isSaving || mode === 'create'}
+                        onClick={() => {
+                            if (!isSaving) setStep(reviewStep)
+                        }}
                     >
                         Revisión final
                     </button>
@@ -515,7 +554,10 @@ export function AssessmentForm({
                 </div>
             </aside>
 
-            <div className="assessment-content">
+            <fieldset
+                className="assessment-content assessment-control-fieldset"
+                disabled={isSaving}
+            >
                 {mode === 'edit' && (
                     <header className="assessment-edit-header">
                         <div>
@@ -906,7 +948,9 @@ export function AssessmentForm({
                             <button
                                 className="assessment-secondary"
                                 type="button"
-                                onClick={() => setStep(ASSESSMENT_SECTIONS.length)}
+                                onClick={() => {
+                                    if (!isSaving) setStep(ASSESSMENT_SECTIONS.length)
+                                }}
                             >
                                 ← Volver a alertas
                             </button>
@@ -935,7 +979,7 @@ export function AssessmentForm({
                         </div>
                     </div>
                 )}
-            </div>
+            </fieldset>
         </section>
     )
 }

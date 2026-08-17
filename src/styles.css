@@ -788,6 +788,12 @@ input[aria-invalid="true"] {
     padding: clamp(2.2rem, 5vw, 5.5rem);
 }
 
+.assessment-control-fieldset {
+    min-width: 0;
+    margin: 0;
+    border: 0;
+}
+
 .assessment-step {
     max-width: 940px;
     animation: rise-in 300ms ease-out both;
@@ -1368,6 +1374,12 @@ input[aria-invalid="true"] {
     background: var(--forest);
 }
 
+.admin-navigation.admin-navigation button:disabled,
+.response-header .member-menu button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
 .admin-surface {
     max-width: 1480px;
     min-height: calc(100vh - 9rem);
@@ -1497,7 +1509,18 @@ input[aria-invalid="true"] {
 }
 .record-edit-button {
     width: 100%;
-    margin-bottom: 0.45rem;
+}
+
+.record-row-actions {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 0.45rem;
+}
+
+.record-row-actions > button {
+    width: 100%;
+    min-width: 0;
 }
 
 .assessment-edit-header {
@@ -2055,6 +2078,11 @@ input[aria-invalid="true"] {
 
     .record-download-button {
         min-width: 0;
+    }
+
+    .record-row-actions {
+        grid-column: 2;
+        max-width: 100%;
     }
 
     .records-table td::before {

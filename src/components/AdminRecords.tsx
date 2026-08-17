@@ -33,6 +33,7 @@ export function AdminRecords({
     getAssessment = getAdminAssessment,
     updateAssessment = updateAdminAssessment,
     onEditingDirtyChange,
+    onEditingSavingChange,
 }: {
     loadRecords?: () => Promise<{ records: AdminAssessment[] }>
     downloadPdf?: (assessmentId: string, signal?: AbortSignal) => Promise<void>
@@ -46,6 +47,7 @@ export function AdminRecords({
         input: AdminAssessmentUpdate,
     ) => Promise<{ id: string; revision: string }>
     onEditingDirtyChange?: (dirty: boolean) => void
+    onEditingSavingChange?: (saving: boolean) => void
 }) {
     const [records, setRecords] = useState<AdminAssessment[]>([])
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -128,12 +130,15 @@ export function AdminRecords({
                 getAssessment={getAssessment}
                 updateAssessment={updateAssessment}
                 onDirtyChange={(dirty) => onEditingDirtyChange?.(dirty)}
+                onSavingChange={(saving) => onEditingSavingChange?.(saving)}
                 onCancel={() => {
                     onEditingDirtyChange?.(false)
+                    onEditingSavingChange?.(false)
                     setSelectedId(undefined)
                 }}
                 onSaved={() => {
                     onEditingDirtyChange?.(false)
+                    onEditingSavingChange?.(false)
                     setSelectedId(undefined)
                     setDownloadNotice({
                         kind: 'success',
@@ -325,30 +330,32 @@ export function AdminRecords({
                                         </span>
                                     </td>
                                     <td data-label="Descarga">
-                                        <button
-                                            className="record-edit-button"
-                                            type="button"
-                                            aria-label={`Editar ${record.institution}`}
-                                            onClick={() => setSelectedId(record.id)}
-                                        >
-                                            Editar
-                                        </button>
-                                        <button
-                                            className="record-download-button"
-                                            type="button"
-                                            disabled={pendingPdfIds.has(record.id)}
-                                            aria-label={`${
-                                                pendingPdfIds.has(record.id)
-                                                    ? 'Descargando'
-                                                    : 'Descargar'
-                                            } PDF de ${record.institution}`}
-                                            aria-busy={pendingPdfIds.has(record.id)}
-                                            onClick={() => void handlePdfDownload(record)}
-                                        >
-                                            {pendingPdfIds.has(record.id)
-                                                ? 'Descargando…'
-                                                : 'Descargar PDF'}
-                                        </button>
+                                        <div className="record-row-actions">
+                                            <button
+                                                className="record-edit-button"
+                                                type="button"
+                                                aria-label={`Editar ${record.institution}`}
+                                                onClick={() => setSelectedId(record.id)}
+                                            >
+                                                Editar
+                                            </button>
+                                            <button
+                                                className="record-download-button"
+                                                type="button"
+                                                disabled={pendingPdfIds.has(record.id)}
+                                                aria-label={`${
+                                                    pendingPdfIds.has(record.id)
+                                                        ? 'Descargando'
+                                                        : 'Descargar'
+                                                } PDF de ${record.institution}`}
+                                                aria-busy={pendingPdfIds.has(record.id)}
+                                                onClick={() => void handlePdfDownload(record)}
+                                            >
+                                                {pendingPdfIds.has(record.id)
+                                                    ? 'Descargando…'
+                                                    : 'Descargar PDF'}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

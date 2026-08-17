@@ -41,6 +41,7 @@ describe('AdminAssessmentEditor', () => {
             .fn()
             .mockResolvedValue({ id: record.id, revision: 'revision-2' })
         const onSaved = vi.fn()
+        const onSavingChange = vi.fn()
         render(
             <AdminAssessmentEditor
                 assessmentId={record.id}
@@ -49,6 +50,7 @@ describe('AdminAssessmentEditor', () => {
                 onCancel={vi.fn()}
                 onSaved={onSaved}
                 onDirtyChange={vi.fn()}
+                onSavingChange={onSavingChange}
             />,
         )
 
@@ -60,6 +62,8 @@ describe('AdminAssessmentEditor', () => {
             expect.objectContaining({ revision: 'revision-1', formVersion: '2026-08-10' }),
         )
         expect(onSaved).toHaveBeenCalledOnce()
+        expect(onSavingChange).toHaveBeenCalledWith(true)
+        expect(onSavingChange).toHaveBeenLastCalledWith(false)
     })
 
     it('aborts a late load when cancelled', async () => {
@@ -78,6 +82,7 @@ describe('AdminAssessmentEditor', () => {
                 onCancel={onCancel}
                 onSaved={vi.fn()}
                 onDirtyChange={vi.fn()}
+                onSavingChange={vi.fn()}
             />,
         )
         await user.click(screen.getByRole('button', { name: 'Volver a registros' }))

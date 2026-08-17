@@ -117,6 +117,7 @@ function Dashboard({
 }) {
     const [view, setView] = useState<'assessment' | 'records' | 'users'>('assessment')
     const [editingDirty, setEditingDirty] = useState(false)
+    const [editingSaving, setEditingSaving] = useState(false)
     const isSuperAdmin = session?.user.role === 'super_admin'
 
     function confirmLeaveEditing(): boolean {
@@ -126,13 +127,13 @@ function Dashboard({
     }
 
     function navigate(next: typeof view) {
-        if (next === view || !confirmLeaveEditing()) return
+        if (next === view || editingSaving || !confirmLeaveEditing()) return
         setEditingDirty(false)
         setView(next)
     }
 
     function signOut() {
-        if (!confirmLeaveEditing()) return
+        if (editingSaving || !confirmLeaveEditing()) return
         setEditingDirty(false)
         void authService.signOut()
     }
@@ -146,8 +147,14 @@ function Dashboard({
                 </div>
                 <div className="member-menu">
                     <span>{session?.user.email}</span>
-                    <button className="text-button" type="button" onClick={signOut}>
-                        Cerrar sesión
+                    <button
+                        className="text-button"
+                        type="button"
+                        disabled={editingSaving}
+                        aria-busy={editingSaving}
+                        onClick={signOut}
+                    >
+                        {editingSaving ? 'Guardando evaluación…' : 'Cerrar sesión'}
                     </button>
                 </div>
             </header>
@@ -156,6 +163,7 @@ function Dashboard({
                     <button
                         className={view === 'assessment' ? 'active' : ''}
                         type="button"
+                        disabled={editingSaving}
                         onClick={() => navigate('assessment')}
                     >
                         Nueva evaluación
@@ -163,6 +171,7 @@ function Dashboard({
                     <button
                         className={view === 'records' ? 'active' : ''}
                         type="button"
+                        disabled={editingSaving}
                         onClick={() => navigate('records')}
                     >
                         Registros
@@ -170,6 +179,7 @@ function Dashboard({
                     <button
                         className={view === 'users' ? 'active' : ''}
                         type="button"
+                        disabled={editingSaving}
                         onClick={() => navigate('users')}
                     >
                         Usuarios
@@ -183,6 +193,7 @@ function Dashboard({
                     getAssessment={adminService.getAssessment}
                     updateAssessment={adminService.updateAssessment}
                     onEditingDirtyChange={setEditingDirty}
+                    onEditingSavingChange={setEditingSaving}
                 />
             )}
             {isSuperAdmin && view === 'users' && (

@@ -79,6 +79,13 @@ describe('AdminRecords exports', () => {
             screen.getByRole('button', { name: 'Descargar PDF de Coliseo Central' }),
         ).toBeEnabled()
         expect(screen.getByRole('button', { name: 'Descargar todos en CSV' })).toBeEnabled()
+        const rowActions = screen.getByRole('button', {
+            name: 'Editar Coliseo Central',
+        }).parentElement
+        expect(rowActions).toHaveClass('record-row-actions')
+        expect(rowActions).toContainElement(
+            screen.getByRole('button', { name: 'Descargar PDF de Coliseo Central' }),
+        )
     })
 
     it('keeps CSV available when there are no records', async () => {
